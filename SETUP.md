@@ -148,9 +148,29 @@ line's own list price (a discounted or overridden rate). It does not yet
 re-quote Shopify's rate for the same service and address. That comparison
 is what the "measured against the Shopify rate" figures in the deck need.
 
-**Not wired in yet:** Aircall calls, Fathom meetings and Gmail threads.
-Until they are, the AI read says the call wasn't checked, and
-`discussed_on_call` stays false.
+**Aircall (optional, free).** With `AIRCALL_API_ID` and
+`AIRCALL_API_TOKEN` in Edge Functions → Secrets, the job looks up every
+flagged order's customer. It searches by the customer, billing and
+shipping phone numbers, from 30 days before the order to 14 days after.
+Each order's **contact trail** then shows who called, when, for how long,
+and whether the call was missed. Where Aircall has a transcript (Aircall
+AI add-on), it's attached and, with a Claude key, read for who raised the
+discount, quoting the exact words.
+
+Recordings play from the call view through `supabase/functions/call-recording`.
+Aircall's recording links expire within minutes, so the board asks for a
+fresh one each time. That function checks the person's passcode, and a rep
+can only play calls on their own orders. Recording links are never stored.
+Setup:
+1. Run `supabase/migrations/0004_aircall.sql`.
+2. Add the two Aircall secrets. Generate a key in Aircall → Integrations &
+   API → API Keys.
+3. Deploy (the GitHub Action deploys both functions).
+4. Run the backfill call (step 6 above) a few times, a few minutes apart.
+   Aircall allows 60 requests a minute, so a month of orders takes 3–4
+   runs. Each run carries on where the last one stopped.
+
+**Not wired in yet:** Fathom meetings and Gmail threads.
 
 ### Importing by hand
 

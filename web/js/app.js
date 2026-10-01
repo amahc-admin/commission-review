@@ -608,7 +608,7 @@ function contactTrailHtml(f) {
   return `<div class="c-card"><div class="c-card-h">Contact trail — ${calls.length} item(s)</div>
     ${calls.map((c, i) => `<button class="c-trail" data-call="${i}">
       <span>&#128222;</span><span><strong>${escapeHtml(c.source || "Call")} · ${cDate(c.date)} · ${escapeHtml(c.rep || "")}</strong>
-      <span class="faint small"> ${c.minutes ? c.minutes + " min · " : ""}${escapeHtml(c.direction || "")} · ${(c.lines || []).length} lines</span></span>
+      <span class="faint small"> ${c.answered === false ? "missed · " : c.minutes ? c.minutes + " min · " : ""}${escapeHtml(c.direction || "")}${(c.lines || []).length ? ` · ${c.lines.length} lines` : c.has_recording ? " · recording" : ""}</span></span>
       <span class="c-link" style="margin-left:auto">open &#8599;</span></button>`).join("")}
   </div>`;
 }
@@ -888,9 +888,12 @@ function showCallModal(f, callIdx, atT) {
       <button class="c-x" data-close aria-label="Close">&times;</button></div>
     ${ai.summary ? `<div class="c-modal-why"><div class="c-card-h">Why the ${isRulesRead(f) ? "rule check" : "AI"} says ${ai.verdict === "unrelated" || ai.verdict === "counts" ? "no" : "so"}</div><p class="small">${escapeHtml(ai.summary)}</p></div>` : ""}
     <div class="c-modal-call"><strong class="small">${escapeHtml(c.source || "Call")} · ${cDate(c.date)} · ${escapeHtml(c.rep || "")} · ${c.minutes ? c.minutes + " min · " : ""}${escapeHtml(c.direction || "")}</strong>
-      ${c.audio_url ? `<audio controls preload="metadata" src="${escapeAttr(c.audio_url)}" id="c-audio" style="width:100%;margin-top:8px"></audio>` : `<p class="faint small">No audio file attached — transcript only.</p>`}
+      ${c.audio_url ? `<audio controls preload="metadata" src="${escapeAttr(c.audio_url)}" id="c-audio" style="width:100%;margin-top:8px"></audio>`
+        : c.aircall_id && c.has_recording ? `<audio controls preload="none" id="c-audio" style="width:100%;margin-top:8px;display:none"></audio>
+            <button class="btn btn-secondary c-btn-sm" id="c-play" style="margin-top:8px">&#9654; Play recording</button> <span class="small c-err" id="c-play-err"></span>`
+        : `<p class="faint small">${c.answered === false ? "Missed call — no recording." : "No recording for this call."}</p>`}
       ${c.url ? `<a class="small" href="${escapeAttr(c.url)}" target="_blank" rel="noopener">open the recording &#8599;</a>` : ""}</div>
-    <div class="c-transcript" id="c-transcript">${lines || `<p class="muted small">No transcript.</p>`}
+    <div class="c-transcript" id="c-transcript">${lines || `<p class="muted small">${c.source === "Aircall" ? "No transcript from Aircall for this call — play the recording instead." : "No transcript."}</p>`}
       <p class="faint small" style="text-align:center">${(c.lines || []).length} lines, nothing hidden</p></div>
     <div class="c-modal-foot">
       ${showButtons ? `<button class="btn c-btn-go-outline" data-claim="push">Push to commission</button><button class="btn c-btn-stop" data-claim="reject">Reject claim</button>` : ""}
@@ -898,7 +901,28 @@ function showCallModal(f, callIdx, atT) {
     </div>`, true);
 
   const audio = m.querySelector("#c-audio");
-  m.querySelectorAll(".c-bubble").forEach((b) => b.addEventListener("click", () => { if (audio) { audio.currentTime = Number(b.dataset.t); audio.play(); } }));
+  // Aircall recording links expire within minutes, so fetch a fresh one on
+  // demand (passcode-checked server-side; see supabase/functions/call-recording).
+  const play = m.querySelector("#c-play");
+  let loading = null;
+  const ensureAudio = () => {
+    if (!play || audio.src) return Promise.resolve();
+    if (loading) return loading;
+    play.disabled = true; play.textContent = "Loading...";
+    loading = API.callRecording(COMM.session.id, COMM.session.passcode, f.id, c.aircall_id).then((r) => {
+      audio.src = r.url; audio.style.display = "block"; play.remove();
+    }).catch((e) => {
+      play.disabled = false; play.innerHTML = "&#9654; Play recording"; loading = null;
+      m.querySelector("#c-play-err").textContent = e.message;
+      throw e;
+    });
+    return loading;
+  };
+  if (play) play.addEventListener("click", () => ensureAudio().then(() => audio.play()).catch(() => {}));
+  m.querySelectorAll(".c-bubble").forEach((b) => b.addEventListener("click", () => {
+    if (!audio) return;
+    ensureAudio().then(() => { audio.currentTime = Number(b.dataset.t); audio.play(); }).catch(() => {});
+  }));
   if (atT != null) {
     const target = [...m.querySelectorAll(".c-bubble")].find((b) => Math.abs(Number(b.dataset.t) - atT) < 3);
     if (target) setTimeout(() => target.scrollIntoView({ block: "center" }), 0);

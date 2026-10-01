@@ -7,7 +7,8 @@ const m = (n: number) => ({ shopMoney: { amount: String(n) } });
 const ORDER = {
   id: "gid://shopify/Order/555", name: "#23544", createdAt: "2026-08-31T23:30:00Z", updatedAt: "2026-09-01T01:00:00Z",
   sourceName: "shopify_draft_order", tags: [], note: null,
-  customer: { displayName: "Karan Singh", email: null, phone: null },
+  customer: { displayName: "Karan Singh", email: null, phone: "0412 345 678" },
+  billingAddress: { phone: "+61 412 345 678" }, shippingAddress: null,
   staffMember: { name: "Beshoy Mikhail", email: "beshoy@amanandhiscave.com" },
   lineItems: { nodes: [{ title: "Pool table", quantity: 1, originalTotalSet: m(1000),
     discountAllocations: [{ allocatedAmountSet: m(100), discountApplication: { index: 0 } }] }] },
@@ -18,7 +19,12 @@ const ORDER = {
 const WEB_ORDER = { ...ORDER, id: "gid://shopify/Order/556", name: "#23545", sourceName: "web", staffMember: null };
 const UNKNOWN_REP = { ...ORDER, id: "gid://shopify/Order/557", name: "#23546", staffMember: { name: "Casual Sam", email: null } };
 
-function setup(seen: Record<string, string> = {}) {
+let aiQuotes: unknown[] = [];
+function setup(seen: Record<string, string> = {}, opts: { aircall?: boolean } = {}) {
+  Deno.env.delete("AIRCALL_API_ID");
+  Deno.env.delete("AIRCALL_API_TOKEN");
+  if (opts.aircall) { Deno.env.set("AIRCALL_API_ID", "ac-id"); Deno.env.set("AIRCALL_API_TOKEN", "ac-token"); }
+  aiQuotes = [];
   for (const [k, v] of Object.entries({
     SUPABASE_URL: "https://db.test", SUPABASE_SERVICE_ROLE_KEY: "eyJservice", SHOPIFY_STORE_DOMAIN: "amahc.myshopify.com",
     SHOPIFY_CLIENT_ID: "cid", SHOPIFY_CLIENT_SECRET: "csecret", ANTHROPIC_API_KEY: "sk-test",
@@ -48,11 +54,25 @@ function setup(seen: Record<string, string> = {}) {
       }
       return json({ data: { orders: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [ORDER, WEB_ORDER, UNKNOWN_REP] } } });
     }
+    if (url.startsWith("https://api.aircall.io/v1/calls/search")) {
+      const q = new URL(url).searchParams;
+      if (q.get("phone_number") !== "+61412345678") return json({ calls: [] });
+      return json({ calls: [
+        { id: 901, direction: "inbound", status: "done", started_at: 1756600000, answered_at: 1756600005, duration: 360, raw_digits: "+61 412 345 678", user: { name: "Beshoy Mikhail" }, recording: "https://rec/901", asset: "https://app/901" },
+        { id: 902, direction: "outbound", status: "done", started_at: 1756610000, answered_at: null, duration: 0, raw_digits: "+61 412 345 678", user: { name: "Beshoy Mikhail" }, recording: null, asset: null },
+      ] });
+    }
+    if (url === "https://api.aircall.io/v1/calls/901/transcription") {
+      return json({ transcription: { content: { utterances: [
+        { participant_type: "external", start_time: 12.4, text: "Have you got any codes?" },
+        { participant_type: "internal", start_time: 15, text: "Use B33RMONEY for a bit off." },
+      ] } } });
+    }
     if (url === "https://api.anthropic.com/v1/messages?beta=true" || url.startsWith("https://api.anthropic.com/v1/messages")) {
       return json({
         id: "msg_1", type: "message", role: "assistant", model: "claude-opus-5-5", stop_reason: "end_turn", stop_sequence: null,
         usage: { input_tokens: 10, output_tokens: 10 },
-        content: [{ type: "text", text: JSON.stringify({ reads: [{ kind: "discount", verdict: "waive", waive_amount: 100, confidence: 90, summary: "Live code.", points: ["B33RMONEY was live. Waived."] }] }) }],
+        content: [{ type: "text", text: JSON.stringify({ reads: [{ kind: "discount", verdict: "waive", waive_amount: 100, confidence: 90, summary: "Live code.", points: ["B33RMONEY was live. Waived."], discussed_on_call: aiQuotes.length > 0, quotes: aiQuotes }] }) }],
       });
     }
     throw new Error("unexpected fetch " + url);
@@ -87,7 +107,7 @@ Deno.test("a run reads rep orders, asks Claude once per order, and loads the fla
 });
 
 Deno.test("an order already read at the same Shopify version is skipped -- no second AI call", async () => {
-  const { calls, imported } = setup({ "discount-23544": ORDER.updatedAt + "|ai" });
+  const { calls, imported } = setup({ "discount-23544": ORDER.updatedAt + "|ai|" });
   const res: any = await run(new URLSearchParams("since=2026-09-01"));
   assertEquals([res.ok, res.skipped_unchanged, res.ai_reads], [true, 1, 0]);
   assertEquals(imported.length, 0);
@@ -119,15 +139,55 @@ Deno.test("with no Claude key, flags still load with a rule-based suggestion and
 });
 
 Deno.test("once a key is added, rule-checked orders are upgraded to an AI read", async () => {
-  const { imported } = setup({ "discount-23544": ORDER.updatedAt + "|rules" });
+  const { imported } = setup({ "discount-23544": ORDER.updatedAt + "|rules|" });
   const res: any = await run(new URLSearchParams("since=2026-09-01"));
   assertEquals([res.mode, res.ai_reads, res.skipped_unchanged], ["ai", 1, 0]);
   assertEquals(imported[0].ai.source, "ai");
 });
 
 Deno.test("rules mode never downgrades an order that already has an AI read", async () => {
-  const { imported } = setup({ "discount-23544": ORDER.updatedAt + "|ai" });
+  const { imported } = setup({ "discount-23544": ORDER.updatedAt + "|ai|" });
   Deno.env.delete("ANTHROPIC_API_KEY");
   const res: any = await run(new URLSearchParams("since=2026-09-01"));
   assertEquals([res.mode, res.skipped_unchanged, imported.length], ["rules", 1, 0]);
+});
+
+Deno.test("with Aircall keys, the customer's calls and transcript are attached and sent to the AI", async () => {
+  const { calls, imported } = setup({}, { aircall: true });
+  aiQuotes = [
+    { speaker: "rep", text: "Use B33RMONEY for a bit off.", call_id: "aircall-901", t: 15 },
+    { speaker: "rep", text: "made up", call_id: "aircall-999", t: 1 }, // a call it wasn't given: dropped
+  ];
+  const res: any = await run(new URLSearchParams("since=2026-09-01"));
+  assertEquals([res.ok, res.aircall, res.calls_attached], [true, true, 2]);
+  const f = imported[0];
+  assertEquals(f.calls.map((c: any) => [c.id, c.answered, c.has_recording, c.lines.length]), [["aircall-901", true, true, 2], ["aircall-902", false, false, 0]]);
+  assertEquals(f.calls[0].lines[1], { speaker: "rep", name: "Beshoy", t: 15, text: "Use B33RMONEY for a bit off." });
+  assertEquals(f.ai.quotes.map((q: any) => q.call_id), ["aircall-901"]);
+  assertEquals([f.ai.discussed_on_call, f.ai.calls_checked], [true, true]);
+  // both phone numbers were the same customer: searched once, deduplicated
+  assertEquals(calls.filter((c) => c.url.includes("/calls/search")).length, 1);
+  const ai = calls.find((c) => c.url.startsWith("https://api.anthropic.com"))!;
+  assert(JSON.stringify(ai.body).includes("Use B33RMONEY for a bit off."));
+  // the Aircall key never reaches Claude or the database
+  assert(!JSON.stringify(ai.body).includes("ac-token"));
+  assert(!JSON.stringify(imported).includes("ac-token") && !JSON.stringify(imported).includes("https://rec/901"));
+});
+
+Deno.test("adding Aircall picks up orders read before it; checked ones are skipped", async () => {
+  let r = setup({ "discount-23544": ORDER.updatedAt + "|ai|" }, { aircall: true });
+  let res: any = await run(new URLSearchParams("since=2026-09-01"));
+  assertEquals([res.calls_attached, r.imported.length], [2, 1]);
+  r = setup({ "discount-23544": ORDER.updatedAt + "|ai|c" }, { aircall: true });
+  res = await run(new URLSearchParams("since=2026-09-01"));
+  assertEquals([res.skipped_unchanged, r.imported.length], [1, 0]);
+});
+
+Deno.test("rules mode notes the calls without reading them", async () => {
+  const { imported } = setup({}, { aircall: true });
+  Deno.env.delete("ANTHROPIC_API_KEY");
+  await run(new URLSearchParams("since=2026-09-01"));
+  const f = imported[0];
+  assertEquals(f.ai.source, "rules");
+  assert(f.ai.points.some((p: string) => p.includes("2 Aircall call(s)") && p.includes("1 with a transcript")));
 });

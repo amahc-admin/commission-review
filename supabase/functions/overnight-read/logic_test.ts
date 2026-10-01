@@ -1,6 +1,6 @@
 // deno test supabase/functions/overnight-read/logic_test.ts
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { attributeRep, flagsForOrder, isExcluded, isRepOrder, rulesRead, type ShopifyOrder, toAiField } from "./logic.ts";
+import { attributeRep, flagsForOrder, isExcluded, normalizePhone, isRepOrder, rulesRead, type ShopifyOrder, toAiField } from "./logic.ts";
 
 const m = (n: number) => ({ shopMoney: { amount: String(n) } });
 const people = [
@@ -113,4 +113,13 @@ Deno.test("rule check on 23544: waive the live $27 code, the rest counts", () =>
 Deno.test("orders with an excluded tag are left out, whatever the case", () => {
   assertEquals(isExcluded({ ...order23544, tags: ["Creator Program", "LUCA"] }, ["luca"]), true);
   assertEquals(isExcluded(order23544, ["luca"]), false);
+});
+
+Deno.test("phone numbers are normalised the way Aircall stores them", () => {
+  assertEquals(normalizePhone("0412 345 678"), "+61412345678");
+  assertEquals(normalizePhone("+61 412 345 678"), "+61412345678");
+  assertEquals(normalizePhone("61412345678"), "+61412345678");
+  assertEquals(normalizePhone("412345678"), "+61412345678");
+  assertEquals(normalizePhone("(02) 9876 5432"), "+61298765432");
+  assertEquals(normalizePhone("n/a"), null);
 });

@@ -5,3 +5,8 @@ project_id = "wumotelrvysafszdxldw"
 # Triggered by pg_cron, not a logged-in user: it checks its own
 # x-cron-secret header instead of a Supabase JWT.
 verify_jwt = false
+
+[functions.call-recording]
+# Called from the board with the person's own passcode in the body,
+# checked by _commission_call_access -- not a Supabase JWT.
+verify_jwt = false

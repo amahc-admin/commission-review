@@ -1,9 +1,10 @@
 // The overnight read itself -- see index.ts for how it is triggered.
 
 import Anthropic from "npm:@anthropic-ai/sdk@0.129";
+import { type AircallCreds, callsForOrder } from "./aircall.ts";
 import {
   AI_SCHEMA, AI_SYSTEM, aiPayload, type AiRead, attributeRep, type CodeWindow, type FlagDraft, flagsForOrder,
-  isExcluded, isRepOrder, type Person, rulesRead, type ShopifyOrder, toAiField,
+  isExcluded, isRepOrder, orderPhones, type Person, rulesRead, type ShopifyOrder, toAiField,
 } from "./logic.ts";
 
 const SHOPIFY_API_VERSION = "2026-07";
@@ -77,6 +78,8 @@ const MONEY = "shopMoney { amount }";
 const orderFields = (withStaff: boolean) => `
   id name createdAt updatedAt sourceName tags note
   customer { displayName email phone }
+  billingAddress { phone }
+  shippingAddress { phone }
   ${withStaff ? "staffMember { name email }" : ""}
   lineItems(first: 50) { nodes { title quantity originalTotalSet { ${MONEY} }
     discountAllocations { allocatedAmountSet { ${MONEY} } discountApplication { index } } } }
@@ -175,11 +178,16 @@ export async function run(params: URLSearchParams) {
   // No Claude key yet (or ?ai=0): still flag everything, with a rule-based
   // suggestion instead of an AI read. Free; upgraded once a key is added.
   const useAi = !!Deno.env.get("ANTHROPIC_API_KEY") && params.get("ai") !== "0";
+  // Aircall is optional too: with keys set, each flagged order gets the
+  // customer's calls (and transcripts where Aircall has them).
+  const aircall: AircallCreds | null = Deno.env.get("AIRCALL_API_ID") && Deno.env.get("AIRCALL_API_TOKEN")
+    ? { id: Deno.env.get("AIRCALL_API_ID")!, token: Deno.env.get("AIRCALL_API_TOKEN")! }
+    : null;
 
   const [runRow] = dry ? [{ id: null }] : await db("commission_runs", {
     method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({}),
   });
-  const summary: Record<string, unknown> = { mode: useAi ? "ai" : "rules", since, orders_scanned: 0, flags_written: 0, ai_reads: 0, skipped_unchanged: 0, deferred: 0, unattributed: [] as unknown[] };
+  const summary: Record<string, unknown> = { mode: useAi ? "ai" : "rules", aircall: !!aircall, calls_attached: 0, since, orders_scanned: 0, flags_written: 0, ai_reads: 0, skipped_unchanged: 0, deferred: 0, unattributed: [] as unknown[] };
   try {
     const ctx = await rpc("_commission_overnight_context", {});
     const people: Person[] = ctx.people;
@@ -210,12 +218,14 @@ export async function run(params: URLSearchParams) {
         (summary.unattributed as unknown[]).push({ order_no: order.name, staff: order.staffMember?.name || null, tags: order.tags, amount: probe.reduce((s, f) => s + f.amount, 0) });
         continue;
       }
-      // seen = "<shopify updatedAt>|<ai|rules>". Rules mode skips anything
-      // read at this version; AI mode only skips AI reads, so rule-checked
-      // orders get upgraded once a key is added.
+      // seen = "<shopify updatedAt>|<ai|rules>|<c if Aircall was checked>".
+      // Rules mode skips anything read at this version; AI mode only skips
+      // AI reads (so rule-checked orders get upgraded once a key is added);
+      // with Aircall on, orders whose calls weren't checked yet are picked up
+      // -- which also lets a long backfill finish over several runs.
       const done = (f: FlagDraft) => {
-        const v = seen[`${f.kind}-${f.order_no}`] || "";
-        return useAi ? v === `${order.updatedAt}|ai` : v.startsWith(order.updatedAt + "|");
+        const [v, src, calls] = (seen[`${f.kind}-${f.order_no}`] || "").split("|");
+        return v === order.updatedAt && (!useAi || src === "ai") && (!aircall || calls === "c");
       };
       if (!force && probe.every(done)) {
         (summary.skipped_unchanged as number)++;
@@ -228,12 +238,23 @@ export async function run(params: URLSearchParams) {
     summary.deferred = todo.length - batch.length;
     const rows: unknown[] = [];
     await pool(batch, AI_CONCURRENCY, async ({ order, flags }) => {
+      if (Date.now() - started > TIME_BUDGET_MS) { (summary.deferred as number)++; return; }
+      let callsChecked = false;
+      if (aircall) {
+        try {
+          const calls = await callsForOrder(aircall, orderPhones(order), order.createdAt, timeZone, { transcripts: true });
+          for (const f of flags) f.calls = calls;
+          (summary.calls_attached as number) += calls.length;
+          callsChecked = true;
+        } catch (e) {
+          summary.aircall_error = String(e).slice(0, 300); // carry on without calls
+        }
+      }
       const at = new Date().toISOString();
       if (!useAi) {
-        for (const f of flags) rows.push({ ...f, ai: rulesRead(f, at) });
+        for (const f of flags) rows.push({ ...f, ai: { ...rulesRead(f, at), calls_checked: callsChecked } });
         return;
       }
-      if (Date.now() - started > TIME_BUDGET_MS) { (summary.deferred as number)++; return; }
       let reads: AiRead[] = [];
       try {
         reads = await aiRead(order, flags);
@@ -242,7 +263,7 @@ export async function run(params: URLSearchParams) {
         if (e instanceof Anthropic.APIError) summary.ai_error = `${e.status}: ${e.message}`.slice(0, 300);
         else throw e;
       }
-      for (const f of flags) rows.push({ ...f, ai: toAiField(f, reads.find((r) => r.kind === f.kind), at) });
+      for (const f of flags) rows.push({ ...f, ai: { ...toAiField(f, reads.find((r) => r.kind === f.kind), at), calls_checked: callsChecked } });
     });
 
     if (rows.length && !dry) summary.flags_written = await rpc("_commission_import_rows", { p_rows: rows });

@@ -25,6 +25,9 @@ jobs:
       - name: Test the overnight read
         run: deno test --allow-env supabase/functions/overnight-read/
 
+      - name: Type-check the recording player
+        run: deno check supabase/functions/call-recording/index.ts
+
       - name: Skip deploy until the token is set
         if: env.SUPABASE_ACCESS_TOKEN == ''
         run: echo "::notice::Tests passed. Add the SUPABASE_ACCESS_TOKEN repo secret to deploy (SETUP.md)."
@@ -36,4 +39,6 @@ jobs:
 
       - name: Deploy overnight-read
         if: env.SUPABASE_ACCESS_TOKEN != ''
-        run: supabase functions deploy overnight-read --project-ref wumotelrvysafszdxldw --no-verify-jwt
+        run: |
+          supabase functions deploy overnight-read --project-ref wumotelrvysafszdxldw --no-verify-jwt
+          supabase functions deploy call-recording --project-ref wumotelrvysafszdxldw --no-verify-jwt

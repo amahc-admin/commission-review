@@ -100,6 +100,17 @@ const API = (() => {
     commissionWeeklyPing(personId, passcode, send) {
       return rpc("commission_post_weekly_ping", { p_person_id: personId, p_passcode: passcode, p_send: !!send });
     },
+    // Fresh, short-lived Aircall recording link for one call on one flag.
+    async callRecording(personId, passcode, flagId, aircallId) {
+      const res = await fetch(BASE + "/functions/v1/call-recording", {
+        method: "POST",
+        headers: { apikey: KEY, ...AUTH, "Content-Type": "application/json" },
+        body: JSON.stringify({ person_id: personId, passcode, flag_id: flagId, aircall_id: aircallId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || res.statusText);
+      return body;
+    },
     uploadCommissionProof(file) {
       return uploadPublicFile("commission-proof", file);
     },

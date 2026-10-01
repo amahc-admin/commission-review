@@ -23,6 +23,8 @@ export type ShopifyOrder = {
   tags: string[];
   note: string | null;
   customer: { displayName: string; email: string | null; phone: string | null } | null;
+  billingAddress?: { phone: string | null } | null;
+  shippingAddress?: { phone: string | null } | null;
   staffMember?: { name: string; email: string | null } | null;
   lineItems: { nodes: { title: string; quantity: number; originalTotalSet: Money; discountAllocations: Allocation[] }[] };
   shippingLines: {
@@ -51,7 +53,43 @@ export type FlagDraft = {
   order_url: string;
   details: Record<string, unknown>;
   slices: Slice[];
+  calls?: CallRecord[];
 };
+
+// One Aircall call as the board shows it (the "contact trail"). lines is
+// the transcript, when Aircall has one; empty otherwise.
+export type CallRecord = {
+  id: string; // "aircall-<id>"
+  aircall_id: number;
+  source: "Aircall";
+  date: string; // YYYY-MM-DD, shop timezone
+  started_at: string; // ISO
+  rep: string | null;
+  minutes: number;
+  direction: string;
+  answered: boolean;
+  has_recording: boolean;
+  lines: { speaker: "rep" | "customer"; name: string; t: number; text: string }[];
+};
+
+// Australian numbers as Aircall stores them (+61...). null if it doesn't
+// look like a phone number.
+export function normalizePhone(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const plus = raw.trim().startsWith("+");
+  const d = raw.replace(/\D/g, "");
+  if (d.length < 8) return null;
+  if (plus) return "+" + d;
+  if (d.startsWith("61")) return "+" + d;
+  if (d.startsWith("0") && d.length === 10) return "+61" + d.slice(1);
+  if (d.length === 9 && d.startsWith("4")) return "+61" + d; // mobile without the leading 0
+  return "+" + d;
+}
+
+export function orderPhones(order: ShopifyOrder): string[] {
+  return [...new Set([order.customer?.phone, order.billingAddress?.phone, order.shippingAddress?.phone]
+    .map(normalizePhone).filter((p): p is string => !!p))];
+}
 
 export const DISCOUNT_THRESHOLD_PCT = 5;
 const REP_CHANNELS = new Set(["pos", "shopify_draft_order"]);
@@ -207,11 +245,12 @@ export const AI_SYSTEM = `You pre-read sales orders for A Man & His Cave's weekl
 The rules:
 - Freight is one-to-one: what Shopify quotes for the service the customer takes is what the customer pays. Charging under it counts against the rep's commission like a discount, unless proven (an Osama run or private courier booking, or a sign-off from Jaya or Ross, attached by the rep).
 - Every discount over 5% needs a reason. Company promos are waived: site-wide automatic discounts, and discount codes that were live on the site that day. The rep's own calls count: manual or custom discounts, free items with no campaign behind them, codes that weren't live.
-- A code the rep pushed on the call counts as the rep's, even if it was live. You don't have call recordings yet, so don't assume either way; say the call wasn't checked.
+- A code the rep pushed on the call counts as the rep's, even if it was live. If the customer raised it, it stays company-side.
+- You may get the customer's Aircall calls (rep, date, length) and, where Aircall has one, the transcript. Use transcripts as evidence: was the discount or the shipping price discussed, and who raised it? Set discussed_on_call accordingly. Quote the exact words (speaker, text, call_id, t in seconds) for anything you rely on, at most 3 quotes. With no transcript, say the call wasn't read, and don't guess what was said.
 - Refunds: say what the order shows (amount, note) and what the reviewer should check. Most refunds have no rep fault; suggest "counts" only if the order clearly shows a rep-caused refund, otherwise "waive" with low confidence.
 
 How to answer:
-- One read per flag you are given, same kind.
+- One read per flag you are given, same kind. Quotes must be copied word for word from a transcript you were given; never paraphrase into a quote.
 - verdict: "waive" (all company-side or proven), "counts" (all the rep's), or "partial" (waive_amount waived, the rest counts). waive_amount is in dollars, between 0 and the flag amount.
 - confidence: 0-100. Be conservative; missing evidence lowers it.
 - summary: one plain sentence for the reviewer.
@@ -233,8 +272,23 @@ export const AI_SCHEMA = {
           confidence: { type: "integer" },
           summary: { type: "string" },
           points: { type: "array", items: { type: "string" } },
+          discussed_on_call: { type: "boolean" },
+          quotes: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                speaker: { type: "string", enum: ["rep", "customer"] },
+                text: { type: "string" },
+                call_id: { type: "string" },
+                t: { type: "number" },
+              },
+              required: ["speaker", "text", "call_id", "t"],
+              additionalProperties: false,
+            },
+          },
         },
-        required: ["kind", "verdict", "waive_amount", "confidence", "summary", "points"],
+        required: ["kind", "verdict", "waive_amount", "confidence", "summary", "points", "discussed_on_call", "quotes"],
         additionalProperties: false,
       },
     },
@@ -245,6 +299,8 @@ export const AI_SCHEMA = {
 
 export type AiRead = {
   kind: string; verdict: string; waive_amount: number; confidence: number; summary: string; points: string[];
+  discussed_on_call?: boolean;
+  quotes?: { speaker: string; text: string; call_id: string; t: number }[];
 };
 
 // What the AI sees for one order: the flags and only the facts behind them.
@@ -260,6 +316,12 @@ export function aiPayload(order: ShopifyOrder, flags: FlagDraft[]) {
     shipping: order.shippingLines.nodes.map((s) => ({ service: s.title, list_price: amt(s.originalPriceSet), charged: amt(s.discountedPriceSet) })),
     refunds: order.refunds.map((r) => ({ date: r.createdAt.slice(0, 10), amount: amt(r.totalRefundedSet), note: r.note })),
     flags: flags.map((f) => ({ kind: f.kind, amount: f.amount, pct: f.pct, slices: f.slices, details: f.details })),
+    // Aircall calls with this customer around the order date. Transcripts
+    // are capped so one long call can't crowd out the rest.
+    calls: (flags[0]?.calls || []).map((c) => ({
+      call_id: c.id, date: c.date, rep: c.rep, minutes: c.minutes, direction: c.direction, answered: c.answered,
+      transcript: c.lines.length ? c.lines.slice(0, 400).map((l) => `[${l.t}s] ${l.speaker}: ${l.text}`).join("\n") : null,
+    })),
   };
 }
 
@@ -276,8 +338,12 @@ export function toAiField(flag: FlagDraft, read: AiRead | undefined, reviewedAt:
     confidence: Math.min(Math.max(Math.round(Number(read.confidence) || 0), 0), 100),
     summary: read.summary,
     points: (read.points || []).slice(0, 6),
-    discussed_on_call: false,
-    quotes: [],
+    discussed_on_call: !!read.discussed_on_call,
+    // keep only quotes that point at a call we actually gave it
+    quotes: (read.quotes || [])
+      .filter((q) => (flag.calls || []).some((c) => c.id === q.call_id) && q.text)
+      .slice(0, 3)
+      .map((q) => ({ speaker: q.speaker === "rep" ? "rep" : "customer", text: q.text, call_id: q.call_id, t: Math.max(0, Math.round(q.t || 0)) })),
     reviewed_at: reviewedAt,
   };
 }
@@ -285,6 +351,11 @@ export function toAiField(flag: FlagDraft, read: AiRead | undefined, reviewedAt:
 // ============================== no-AI mode ==============================
 
 const money = (n: number) => "$" + Math.round(n).toLocaleString("en-AU");
+
+function callsNote(calls: CallRecord[]): string {
+  const withT = calls.filter((c) => c.lines.length).length;
+  return `${calls.length} Aircall call(s) with this customer around the order date${withT ? ` (${withT} with a transcript)` : ""} — open them in the contact trail; the rule check doesn't read calls.`;
+}
 
 // The suggestion the rules alone support, for when there's no Claude key
 // (or ?ai=0). Labelled source "rules" so the board shows it as a rule
@@ -302,6 +373,7 @@ export function rulesRead(flag: FlagDraft, reviewedAt: string) {
       if (sl.type === "named manual") return `"${sl.label}" (${money(sl.amount)}) was keyed in by hand, not an automatic promo. Counts unless the rep states a case.`;
       return `Unnamed custom discount of ${money(sl.amount)} — the rep's own call. Counts.`;
     });
+    if (flag.calls?.length) points.push(callsNote(flag.calls));
     const waived = round2(flag.slices.filter((x) => x.side === "company").reduce((a, x) => a + x.amount, 0));
     const verdict = waived <= 0.005 ? "counts" : waived >= flag.amount - 0.005 ? "waive" : "partial";
     return {
@@ -315,7 +387,8 @@ export function rulesRead(flag: FlagDraft, reviewedAt: string) {
     return {
       ...base, verdict: "counts", waive_amount: 0,
       summary: `Shipping charged ${money(d.charged || 0)} against a ${money(d.cost || 0)} list price.`,
-      points: [`${d.service || "Shipping"}: ${money(flag.amount)} under the list price. Counts unless proven (Osama run, courier booking or a sign-off).`],
+      points: [`${d.service || "Shipping"}: ${money(flag.amount)} under the list price. Counts unless proven (Osama run, courier booking or a sign-off).`,
+        ...(flag.calls?.length ? [callsNote(flag.calls)] : [])],
     };
   }
   const reason = (flag.details as { reason?: string | null }).reason;
