@@ -130,6 +130,19 @@ the board, plus any order it couldn't match to a rep.
      body := '{}'::jsonb, timeout_milliseconds := 150000);
    ```
 
+**Orders that are never commission.** Orders carrying a tag in
+`commission_settings.exclude_tags` are skipped entirely; this starts as
+`["luca"]` for the creative strategist's creator-programme orders. Run
+`supabase/migrations/0003_exclude_tags.sql` once to set it up. Change the
+list with:
+```sql
+update commission_settings set value = '["luca", "cx-ticket"]' where key = 'exclude_tags';
+```
+
+**Re-reading orders already on the board.** Add `&force=1` to the backfill
+URL. This refreshes the order data and the suggestion, but reps' answers
+and decisions are kept.
+
 **Freight is version 1.** It flags shipping charged below the shipping
 line's own list price (a discounted or overridden rate). It does not yet
 re-quote Shopify's rate for the same service and address. That comparison

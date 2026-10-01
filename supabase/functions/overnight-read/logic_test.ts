@@ -1,6 +1,6 @@
 // deno test supabase/functions/overnight-read/logic_test.ts
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { attributeRep, flagsForOrder, isRepOrder, rulesRead, type ShopifyOrder, toAiField } from "./logic.ts";
+import { attributeRep, flagsForOrder, isExcluded, isRepOrder, rulesRead, type ShopifyOrder, toAiField } from "./logic.ts";
 
 const m = (n: number) => ({ shopMoney: { amount: String(n) } });
 const people = [
@@ -70,6 +70,7 @@ Deno.test("23544 splits into the deck's four slices and raises discount + freigh
     ["code", 27, "company"],
   ]);
   assertEquals(d.slices[3].note, "live site code — company's");
+  assertEquals(d.slices[0].note, "100% off a line item — no campaign behind it");
   const f = flags[1];
   assertEquals([f.amount, f.details.charged, f.details.cost], [260, 90, 350]);
 });
@@ -107,4 +108,9 @@ Deno.test("rule check on 23544: waive the live $27 code, the rest counts", () =>
   assertEquals([r.source, r.verdict, r.waive_amount, r.points.length], ["rules", "partial", 27, 4]);
   assert(r.points.some((p) => p.includes("was live on the site on 1 Sep")));
   assertEquals(rulesRead(fr, "x").verdict, "counts");
+});
+
+Deno.test("orders with an excluded tag are left out, whatever the case", () => {
+  assertEquals(isExcluded({ ...order23544, tags: ["Creator Program", "LUCA"] }, ["luca"]), true);
+  assertEquals(isExcluded(order23544, ["luca"]), false);
 });

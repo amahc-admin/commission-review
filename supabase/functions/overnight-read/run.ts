@@ -3,7 +3,7 @@
 import Anthropic from "npm:@anthropic-ai/sdk@0.129";
 import {
   AI_SCHEMA, AI_SYSTEM, aiPayload, type AiRead, attributeRep, type CodeWindow, type FlagDraft, flagsForOrder,
-  isRepOrder, type Person, rulesRead, type ShopifyOrder, toAiField,
+  isExcluded, isRepOrder, type Person, rulesRead, type ShopifyOrder, toAiField,
 } from "./logic.ts";
 
 const SHOPIFY_API_VERSION = "2026-07";
@@ -184,6 +184,10 @@ export async function run(params: URLSearchParams) {
     const ctx = await rpc("_commission_overnight_context", {});
     const people: Person[] = ctx.people;
     const seen: Record<string, string> = ctx.seen || {};
+    const excludeTags: string[] = ctx.exclude_tags || [];
+    // ?force=1 re-reads orders already on the board (e.g. after the rule
+    // wording changes). Reps' answers and decisions are still kept.
+    const force = params.get("force") === "1";
 
     const token = await shopifyToken(shop);
     const shopInfo = await gql(shop, token, `{ shop { ianaTimezone } }`);
@@ -198,7 +202,7 @@ export async function run(params: URLSearchParams) {
     // Orders that raise flags and haven't been read at this Shopify version
     const todo: { order: ShopifyOrder; flags: FlagDraft[] }[] = [];
     for (const order of orders) {
-      if (!isRepOrder(order, people)) continue;
+      if (!isRepOrder(order, people) || isExcluded(order, excludeTags)) continue;
       const repId = attributeRep(order, people);
       const probe = flagsForOrder(order, repId || "?", windows, { timeZone, storeHandle });
       if (!probe.length) continue;
@@ -213,7 +217,7 @@ export async function run(params: URLSearchParams) {
         const v = seen[`${f.kind}-${f.order_no}`] || "";
         return useAi ? v === `${order.updatedAt}|ai` : v.startsWith(order.updatedAt + "|");
       };
-      if (probe.every(done)) {
+      if (!force && probe.every(done)) {
         (summary.skipped_unchanged as number)++;
         continue;
       }

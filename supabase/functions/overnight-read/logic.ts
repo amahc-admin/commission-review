@@ -77,6 +77,14 @@ export function attributeRep(order: ShopifyOrder, people: Person[]): string | nu
   return null;
 }
 
+// Orders carrying one of these tags are never commission (e.g. "luca":
+// creator-programme orders handled by the creative strategist). Set in
+// commission_settings.exclude_tags; matched case-insensitively.
+export function isExcluded(order: ShopifyOrder, excludeTags: string[]): boolean {
+  const tags = (order.tags || []).map((t) => t.toLowerCase());
+  return excludeTags.some((x) => tags.includes(x.toLowerCase()));
+}
+
 // Commission only covers orders a rep handled: POS, draft orders (quotes),
 // or anything carrying a rep's staff member or tag.
 export function isRepOrder(order: ShopifyOrder, people: Person[]): boolean {
@@ -129,7 +137,7 @@ export function discountSlices(order: ShopifyOrder, codeWindows: Record<string, 
       slices.push({
         type: free ? "free item" : named ? "named manual" : "rep custom",
         label: free ? `100% off — ${free.join(", ")}` : named ? title : "Custom discount",
-        note: named ? "manual, named — no matching automatic promo" : "unnamed, rep-keyed",
+        note: free ? "100% off a line item — no campaign behind it" : named ? "manual, named — no matching automatic promo" : "unnamed, rep-keyed",
         amount, side: "rep",
       });
     }

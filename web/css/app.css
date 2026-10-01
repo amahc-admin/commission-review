@@ -142,7 +142,7 @@ button, input { font-family: inherit; }
 .c-stat-dark .c-stat-num { color: var(--yellow); }
 .c-stat-label { font: 700 11px "Barlow Condensed", sans-serif; text-transform: uppercase; letter-spacing: .06em; opacity: .75; }
 .c-stat-num { font: 700 32px/1.1 "Barlow Condensed", sans-serif; margin: 4px 0; font-variant-numeric: tabular-nums; }
-.c-split { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; min-height: 520px; }
+.c-split { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); border: 1px solid var(--border); border-radius: var(--radius-md); overflow: clip; min-height: 520px; }
 .c-queue { background: var(--bg-soft); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
 .c-queue-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px 14px 8px; font: 700 11px "Barlow Condensed", sans-serif; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
 .c-rows { display: flex; flex-direction: column; }
@@ -159,6 +159,11 @@ button, input { font-family: inherit; }
 .c-empty { padding: 14px; }
 .c-queue-foot { margin-top: auto; padding: 12px 14px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .c-detail { padding: 20px 22px; background: var(--surface); min-width: 0; }
+/* With a long queue, keep the selected order's details on screen while the
+   list scrolls. */
+@media (min-width: 901px) {
+  .c-detail { position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto; }
+}
 .c-d-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 .c-d-head > div:first-child { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .c-d-order { font: 700 24px "Barlow Condensed", sans-serif; }
