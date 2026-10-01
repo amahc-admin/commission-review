@@ -94,6 +94,9 @@ const API = (() => {
     commissionSignOffWeek(personId, passcode, period, week) {
       return rpc("commission_sign_off_week", { p_person_id: personId, p_passcode: passcode, p_period: period, p_week: week });
     },
+    commissionLastRun(personId, passcode) {
+      return rpc("commission_last_run", { p_person_id: personId, p_passcode: passcode });
+    },
     commissionWeeklyPing(personId, passcode, send) {
       return rpc("commission_post_weekly_ping", { p_person_id: personId, p_passcode: passcode, p_send: !!send });
     },

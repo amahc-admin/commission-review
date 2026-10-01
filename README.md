@@ -36,9 +36,10 @@ has their own passcode, which is checked in Postgres on every call. A rep
 only ever gets their own orders back, and only reviewers can import,
 decide, ask or escalate.
 
-The overnight AI read (Shopify + Fathom/call recordings + website history)
-runs outside this repo. It sends its results in through
-`commission_import`; see SETUP.md for the format.
+- **`supabase/functions/overnight-read`** is the nightly job: it reads
+  Shopify orders, has Claude write the suggestion, and loads the flags.
+  Tests: `deno test --allow-env supabase/functions/overnight-read/`.
+  Aircall, Fathom and Gmail evidence aren't wired in yet.
 
 **See [SETUP.md](SETUP.md) to stand it up.**
 

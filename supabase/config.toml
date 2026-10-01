@@ -1,0 +1,7 @@
+# Used by `supabase functions deploy` (see .github/workflows/deploy-functions.yml).
+project_id = "wumotelrvysafszdxldw"
+
+[functions.overnight-read]
+# Triggered by pg_cron, not a logged-in user: it checks its own
+# x-cron-secret header instead of a Supabase JWT.
+verify_jwt = false

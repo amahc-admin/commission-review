@@ -202,6 +202,12 @@ async function loadCommissionBoard(period) {
   const board = await API.commissionBoard(s.id, s.passcode, period || COMM.period);
   COMM.board = board;
   COMM.period = board.period;
+  // Reviewers see when the overnight read last ran and anything it
+  // couldn't put on a rep's board. Older databases without 0002 just skip it.
+  COMM.lastRun = null;
+  if (s.role === "reviewer") {
+    try { COMM.lastRun = await API.commissionLastRun(s.id, s.passcode); } catch (e) {}
+  }
   const weeks = weeksPresent();
   if (COMM.week !== "all" && !weeks.includes(COMM.week)) {
     // open on the first week that still has something undecided
@@ -318,11 +324,21 @@ function renderCommissionBoard() {
 
   const periodOpts = (b.periods.length ? b.periods : [COMM.period]).map((p) => `<option value="${p}" ${p === COMM.period ? "selected" : ""}>${periodLabel(p)}</option>`).join("");
 
+  const run = COMM.lastRun;
+  const sum = (run && run.summary) || {};
+  const unattributed = sum.unattributed || [];
+  const runLine = !isReviewer() ? "" : !run ? `<span class="faint small">Overnight read: not run yet</span>` : `
+      <span class="small ${run.status === "error" ? "c-bad" : "muted"}" title="${escapeAttr(sum.error || "")}">
+        Overnight read ${run.status === "error" ? "failed" : "ran"} ${cWhen(run.finished_at || run.started_at)}${run.status === "ok" ? ` · ${sum.flags_written || 0} flag(s) updated` : ""}${sum.deferred ? ` · ${sum.deferred} left for next run` : ""}
+      </span>
+      ${unattributed.length ? `<button class="c-link small" id="c-unattr">${unattributed.length} order(s) not matched to a rep</button>` : ""}`;
+
   const reviewerTools = isReviewer() ? `
       <button class="btn btn-secondary c-btn-sm" id="c-import">Import flags</button>
       <button class="btn btn-secondary c-btn-sm" id="c-ping">Monday ping</button>
       <button class="btn btn-secondary c-btn-sm" id="c-totals">Payout totals</button>
-      <button class="btn btn-secondary c-btn-sm" id="c-export">Export CSV</button>` : "";
+      <button class="btn btn-secondary c-btn-sm" id="c-export">Export CSV</button>
+      <span class="c-runline">${runLine}</span>` : "";
 
   pageBody.innerHTML = `
     <div class="c-head">
@@ -375,6 +391,8 @@ function wireBoardChrome() {
     document.getElementById("c-ping").addEventListener("click", showPingModal);
     document.getElementById("c-totals").addEventListener("click", showTotalsModal);
     document.getElementById("c-export").addEventListener("click", exportCsv);
+    const ua = document.getElementById("c-unattr");
+    if (ua) ua.addEventListener("click", showUnattributedModal);
     const filter = document.getElementById("c-filter");
     if (filter) filter.addEventListener("change", (e) => { COMM.filter = e.target.value; COMM.selectedId = null; renderCommissionBoard(); });
     const so = document.getElementById("c-signoff");
@@ -1003,6 +1021,16 @@ function showTotalsModal() {
     <p class="small muted" style="text-align:left">Dollars that count against each rep's commission base. "Still open" counts as-is if it isn't decided by month-end. Feed the decided numbers into the cash-flow forecast weekly.</p>
     <div style="overflow-x:auto"><table class="c-table"><thead><tr><th>Rep</th><th>Flagged</th><th>Waived</th><th>Counts (decided)</th><th>Still open</th><th>Freight over-recovered</th><th>Claims pushed</th></tr></thead>
     <tbody>${rows || `<tr><td colspan="7" class="muted">No flags this month.</td></tr>`}</tbody></table></div>
+    <div class="c-modal-foot"><button class="btn btn-secondary" data-close>Close</button></div>`, true);
+}
+
+function showUnattributedModal() {
+  const list = ((COMM.lastRun || {}).summary || {}).unattributed || [];
+  commissionModal("c-unattr-modal", `
+    <div class="c-modal-head"><strong>Orders the overnight read couldn't match to a rep</strong><button class="c-x" data-close aria-label="Close">&times;</button></div>
+    <p class="small muted" style="text-align:left">These raised a flag but their Shopify staff member or tags don't match anyone on the board, so they were left off. Add the missing name to that rep's <code>shopify_match</code> (SETUP.md) and the next run picks them up.</p>
+    <div style="overflow-x:auto"><table class="c-table"><thead><tr><th>Order</th><th>Staff member</th><th>Tags</th><th>At stake</th></tr></thead>
+    <tbody>${list.map((u) => `<tr><td>${escapeHtml(u.order_no)}</td><td>${escapeHtml(u.staff || "—")}</td><td>${escapeHtml((u.tags || []).join(", ") || "—")}</td><td>${cMoney(u.amount)}</td></tr>`).join("")}</tbody></table></div>
     <div class="c-modal-foot"><button class="btn btn-secondary" data-close>Close</button></div>`, true);
 }
 

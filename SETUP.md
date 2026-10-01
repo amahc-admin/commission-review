@@ -69,6 +69,70 @@ Reviewers can also preview the ping, or post it by hand, from the board
 
 ## 5. Getting flags in
 
+### The overnight read (automatic)
+
+`supabase/functions/overnight-read` runs every night. Each run:
+1. Reads the last 3 days of updated orders from Shopify.
+2. Keeps the rep orders: POS, draft orders, or anything with a rep's staff
+   member or tag.
+3. Flags discounts over 5%, shipping charged under its list price, and
+   refunds.
+4. Checks each discount code against when it was actually live in Shopify.
+5. Asks Claude (Opus 5.5) for the suggestion.
+6. Loads everything onto the board.
+
+An order already read at the same Shopify version is skipped, so it never
+pays for the same read twice. Reviewers see when it last ran at the top of
+the board, plus any order it couldn't match to a rep.
+
+**One-time setup**
+
+1. **Run `supabase/migrations/0002_overnight_read.sql`** in the SQL Editor.
+2. **Secrets.** Under Edge Functions → Secrets, add:
+
+   | Name | Value |
+   |---|---|
+   | `SHOPIFY_STORE_DOMAIN` | `amahc.myshopify.com` |
+   | `SHOPIFY_CLIENT_ID` / `SHOPIFY_CLIENT_SECRET` | the Commission Review app in the Shopify Dev Dashboard (read-only scopes: `read_orders, read_all_orders, read_draft_orders, read_customers, read_discounts, read_shipping`) |
+   | `ANTHROPIC_API_KEY` | console.anthropic.com → API Keys |
+   | `CRON_SECRET` | the value shown by step 5 below |
+
+3. **Let GitHub deploy the function.** Create a Supabase access token at
+   https://supabase.com/dashboard/account/tokens. In this repo, add it as an
+   Actions secret named `SUPABASE_ACCESS_TOKEN` (Settings → Secrets and
+   variables → Actions → New repository secret). Then run **Deploy Supabase
+   Edge Functions** from the Actions tab. It runs the tests first, and
+   redeploys by itself whenever the function changes.
+4. **Match reps to Shopify.** Each rep's `shopify_match` is a list of
+   lower-case strings, matched against the order's staff member name and
+   email and its tags. Beshoy and Lachy start with their first names and
+   work emails. Change a rep's list like this:
+   ```sql
+   update commission_people set shopify_match = array['lachlan', 'lachlan@amanandhiscave.com'] where id = 'lachy';
+   ```
+5. **Schedule it.** Run `supabase/schedule-overnight-read.sql`. It ends by
+   showing a random secret: copy that into Edge Functions → Secrets as
+   `CRON_SECRET`.
+6. **Backfill a month by hand (optional).** Each call reads up to 40
+   orders with AI and leaves the rest for the next call:
+   ```sql
+   select net.http_post(
+     url := 'https://wumotelrvysafszdxldw.supabase.co/functions/v1/overnight-read?since=2026-09-01',
+     headers := jsonb_build_object('x-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'overnight_cron_secret')),
+     body := '{}'::jsonb, timeout_milliseconds := 150000);
+   ```
+
+**Freight is version 1.** It flags shipping charged below the shipping
+line's own list price (a discounted or overridden rate). It does not yet
+re-quote Shopify's rate for the same service and address. That comparison
+is what the "measured against the Shopify rate" figures in the deck need.
+
+**Not wired in yet:** Aircall calls, Fathom meetings and Gmail threads.
+Until they are, the AI read says the call wasn't checked, and
+`discussed_on_call` stays false.
+
+### Importing by hand
+
 The board shows the AI's pre-read but doesn't do it itself. Flags come in
 through `commission_import`, which takes a JSON array. Paste one into
 **Import flags** on the board, or have the overnight job (Shopify +
