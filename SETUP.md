@@ -7,7 +7,7 @@ so commission and pay data never shares a database with anything else.
 
 1. At https://supabase.com, create a new project (the free tier is fine).
 2. Under **Project Settings → API**, copy the **Project URL** and the
-   **anon / public key**.
+   **publishable key** (`sb_publishable_...`; older projects call it the **anon / public key**).
 3. Put both in `web/js/config.js`, then commit and push. The anon key is
    meant to be public: it grants nothing by itself.
 

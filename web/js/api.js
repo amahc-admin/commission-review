@@ -6,13 +6,17 @@ const API = (() => {
   const cfg = window.SUPABASE_CONFIG || {};
   const BASE = (cfg.url || "").replace(/\/$/, "");
   const KEY = cfg.anonKey || "";
+  // Legacy anon keys are JWTs and go in Authorization too; the newer
+  // sb_publishable_... keys only go in the apikey header (Supabase rejects
+  // them as a Bearer token on some endpoints, e.g. Storage).
+  const AUTH = KEY.startsWith("eyJ") ? { Authorization: "Bearer " + KEY } : {};
 
   async function rest(path, opts = {}) {
     const res = await fetch(BASE + "/rest/v1/" + path, {
       ...opts,
       headers: {
         apikey: KEY,
-        Authorization: "Bearer " + KEY,
+        ...AUTH,
         "Content-Type": "application/json",
         ...(opts.headers || {}),
       },
@@ -44,7 +48,7 @@ const API = (() => {
       method: "POST",
       headers: {
         apikey: KEY,
-        Authorization: "Bearer " + KEY,
+        ...AUTH,
         "Content-Type": file.type || "application/octet-stream",
       },
       body: file,
