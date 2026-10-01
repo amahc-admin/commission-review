@@ -4,6 +4,6 @@
 // through the passcode-checked functions in
 // supabase/migrations/0001_commission_review.sql.
 window.SUPABASE_CONFIG = {
-  url: "https://YOUR-PROJECT-REF.supabase.co",
+  url: "https://wumotelrvysafszdxldw.supabase.co",
   anonKey: "YOUR-ANON-KEY",
 };

@@ -62,7 +62,7 @@ const API = (() => {
 
   return {
     configured() {
-      return !!(BASE && KEY) && !BASE.includes("YOUR-PROJECT-REF");
+      return !!(BASE && KEY) && !BASE.includes("YOUR-PROJECT-REF") && !KEY.includes("YOUR-ANON-KEY");
     },
 
     listCommissionPeople() { return rpc("list_commission_people", {}); },
