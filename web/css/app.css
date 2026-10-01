@@ -77,10 +77,11 @@ h1, h2, h3, h4 { margin: 0; font-family: Barlow, system-ui, sans-serif; }
 button, input { font-family: inherit; }
 :focus-visible { outline: 2px solid var(--navy); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
-.app-shell { max-width: 1360px; margin: 0 auto; padding: 20px 20px 64px; }
+/* Full window, edge to edge: no outer margin or rounded frame. */
+.app-shell { min-height: 100vh; display: flex; flex-direction: column; }
 .topbar {
     display: flex; align-items: center; gap: 24px;
-    background: var(--brand-navy); border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    background: var(--brand-navy);
     padding: 14px 24px; position: relative;
   }
 .topbar::after { content: ""; position: absolute; left: 0; right: 0; bottom: -12px; height: 12px; background: var(--yellow); }
@@ -101,7 +102,7 @@ button, input { font-family: inherit; }
 .login-gate .vm-item.selected { background: var(--bg-soft-2); border-color: var(--border-strong); }
 .login-gate .vm-dot { width: 26px; height: 26px; border-radius: 50%; background: var(--surface); border: 1px solid var(--border-strong); display: grid; place-items: center; font: 700 11px "Barlow Condensed", sans-serif; flex-shrink: 0; }
 .login-gate .vm-item-login { border: 1px solid var(--border-strong); }
-.page-body { background: var(--surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); box-shadow: var(--shadow-card); padding: 36px; margin-top: 12px; }
+.page-body { flex: 1; background: var(--surface); padding: 28px 32px 40px; margin-top: 12px; }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: none; border-radius: 10px; padding: 11px 20px; font: 700 14px Barlow, sans-serif; cursor: pointer; transition: transform .08s, box-shadow .12s, background .12s; }
 .btn:active { transform: translateY(1px); }
 .btn:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; transform: none; }
@@ -262,7 +263,6 @@ button, input { font-family: inherit; }
 .signout { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.14); color: #fff; border-radius: 999px; padding: 7px 14px; font: 600 13px Barlow, sans-serif; cursor: pointer; }
 .brand-sub { color: rgba(255,255,255,.6); font: 600 13px Barlow, sans-serif; text-transform: none; letter-spacing: 0; }
 @media (max-width: 720px) {
-  .app-shell { padding: 12px; }
   .page-body { padding: 20px 16px; }
   .topbar { gap: 10px; padding: 12px 14px; }
   .brand { font-size: 15px; gap: 6px; }
