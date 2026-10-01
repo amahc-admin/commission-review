@@ -137,13 +137,21 @@ function countsAmount(f) {
   return Number(f.amount);
 }
 
+// "rules" = the overnight read's no-AI mode: a suggestion worked out from
+// the Shopify order alone (codes live that day, manual vs automatic), with
+// no AI read or call evidence. Labelled differently so nobody mistakes it.
+function isRulesRead(f) { return (f.ai || {}).source === "rules"; }
+function readerLabel(f) { return isRulesRead(f) ? "Rules" : "AI"; }
+
 function aiChip(f) {
   const ai = f.ai || {};
+  const who = readerLabel(f);
   const conf = ai.confidence != null ? " · " + ai.confidence + "%" : "";
+  if (!ai.verdict && isRulesRead(f)) return `<span class="c-chip c-grey">Rules: check it</span>`;
   switch (ai.verdict) {
-    case "partial": return `<span class="c-chip c-amber">AI: waive ${cMoney(ai.waive_amount)}, rest counts</span>`;
-    case "waive": return `<span class="c-chip c-green">AI: waive ${cMoney(ai.waive_amount != null ? ai.waive_amount : f.amount)}</span>`;
-    case "counts": return `<span class="c-chip c-red">AI: counts</span>`;
+    case "partial": return `<span class="c-chip c-amber">${who}: waive ${cMoney(ai.waive_amount)}, rest counts</span>`;
+    case "waive": return `<span class="c-chip c-green">${who}: waive ${cMoney(ai.waive_amount != null ? ai.waive_amount : f.amount)}</span>`;
+    case "counts": return `<span class="c-chip c-red">${who}: counts</span>`;
     case "unrelated": return `<span class="c-chip c-red">AI: unrelated${conf}</span>`;
     case "related": return `<span class="c-chip c-green">AI: related${conf}</span>`;
     case "for_rep": return `<span class="c-chip c-green">Counts for you</span>`;
@@ -429,7 +437,7 @@ function reviewerQueueHtml() {
   const opts = [["open", "Needs a decision"], ["answered", "Rep answered"], ["escalated", "Escalated"], ["decided", "Decided"], ["all", "Everything"]]
     .map(([v, l]) => `<option value="${v}" ${COMM.filter === v ? "selected" : ""}>${l}</option>`).join("");
   return `
-    <div class="c-queue-head"><span>This ${COMM.week === "all" ? "month's" : "week's"} queue — AI has pre-read every one</span>
+    <div class="c-queue-head"><span>This ${COMM.week === "all" ? "month's" : "week's"} queue — pre-read overnight</span>
       <select id="c-filter" class="c-select">${opts}</select></div>
     <div class="c-rows">${flags.map((f) => queueRowHtml(f)).join("") || `<p class="muted small c-empty">Nothing here.</p>`}</div>
     <div class="c-queue-foot">
@@ -575,20 +583,22 @@ function sliceClass(sl) {
 
 function aiCardHtml(f) {
   const ai = f.ai || {};
-  if (!ai.verdict) return `<div class="c-card"><div class="c-card-h">AI review</div><p class="muted small">No AI read on this one yet — it'll show here after the next overnight run.</p></div>`;
+  if (!ai.verdict && !isRulesRead(f)) return `<div class="c-card"><div class="c-card-h">AI review</div><p class="muted small">No AI read on this one yet — it'll show here after the next overnight run.</p></div>`;
   const quotes = (ai.quotes || []).map((q, i) => `<div class="c-quote">
       <span class="c-quote-who ${q.speaker === "rep" ? "c-rep" : "c-cust"}">${q.speaker === "rep" ? "REP" : "CUSTOMER"}</span>
       <span class="c-quote-text">&ldquo;${escapeHtml(q.text)}&rdquo;</span>
       ${q.call_id ? `<button class="c-link" data-hear="${i}">&#9654; hear it</button>` : ""}</div>`).join("");
   return `<div class="c-card">
-    <div class="c-card-h">AI review ${aiChip(f)}
+    <div class="c-card-h">${isRulesRead(f) ? "Rule check" : "AI review"} ${aiChip(f)}
       ${ai.confidence != null ? `<span class="faint small">${ai.confidence}% confidence</span>` : ""}
       ${ai.discussed_on_call ? `<span class="c-chip c-blue">discussed on call</span>` : ""}
       <span class="faint small" style="margin-left:auto">${ai.reviewed_at ? "reviewed " + cWhen(ai.reviewed_at) : ""}</span></div>
     ${ai.summary && !(ai.points || []).length ? `<p class="small">${escapeHtml(ai.summary)}</p>` : ""}
     ${(ai.points || []).length ? `<ul class="c-points">${ai.points.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ul>` : ""}
     ${quotes ? `<div class="c-quotes">${quotes}</div>` : ""}
-    <p class="faint small" style="margin-top:8px">The AI only suggests, with its evidence attached. A named person decides every dollar.</p>
+    <p class="faint small" style="margin-top:8px">${isRulesRead(f)
+      ? "Worked out from the Shopify order alone — no AI read or call evidence yet. A named person decides every dollar."
+      : "The AI only suggests, with its evidence attached. A named person decides every dollar."}</p>
   </div>`;
 }
 
@@ -646,9 +656,10 @@ function reviewerActionsHtml(f) {
             <button class="btn c-btn-stop" data-act="reject">Reject claim</button>`;
   } else {
     let acceptLabel = null;
-    if (ai.verdict === "partial") acceptLabel = `Accept AI — waive ${cMoney(ai.waive_amount)}, rest counts`;
-    else if (ai.verdict === "waive") acceptLabel = `Accept AI — waive it all`;
-    else if (ai.verdict === "counts") acceptLabel = `Accept AI — it counts`;
+    const accept = isRulesRead(f) ? "Accept suggestion" : "Accept AI";
+    if (ai.verdict === "partial") acceptLabel = `${accept} — waive ${cMoney(ai.waive_amount)}, rest counts`;
+    else if (ai.verdict === "waive") acceptLabel = `${accept} — waive it all`;
+    else if (ai.verdict === "counts") acceptLabel = `${accept} — it counts`;
     main = `${acceptLabel ? `<button class="btn c-btn-go" data-act="accept">${acceptLabel}</button>` : ""}
       <button class="btn btn-secondary" data-act="waive">Waive it all</button>
       <button class="btn c-btn-stop" data-act="counts">Count it all</button>
@@ -875,7 +886,7 @@ function showCallModal(f, callIdx, atT) {
     <div class="c-modal-head"><div><strong>#${escapeHtml(f.order_no)}</strong> ${escapeHtml(f.customer || "")} <strong>${cMoney(f.amount)}</strong>
       <span class="muted small">${isClaim ? "claimed by " : ""}${escapeHtml(personNameById(f.rep_id))}</span> ${aiChip(f)}</div>
       <button class="c-x" data-close aria-label="Close">&times;</button></div>
-    ${ai.summary ? `<div class="c-modal-why"><div class="c-card-h">Why the AI says ${ai.verdict === "unrelated" || ai.verdict === "counts" ? "no" : "so"}</div><p class="small">${escapeHtml(ai.summary)}</p></div>` : ""}
+    ${ai.summary ? `<div class="c-modal-why"><div class="c-card-h">Why the ${isRulesRead(f) ? "rule check" : "AI"} says ${ai.verdict === "unrelated" || ai.verdict === "counts" ? "no" : "so"}</div><p class="small">${escapeHtml(ai.summary)}</p></div>` : ""}
     <div class="c-modal-call"><strong class="small">${escapeHtml(c.source || "Call")} · ${cDate(c.date)} · ${escapeHtml(c.rep || "")} · ${c.minutes ? c.minutes + " min · " : ""}${escapeHtml(c.direction || "")}</strong>
       ${c.audio_url ? `<audio controls preload="metadata" src="${escapeAttr(c.audio_url)}" id="c-audio" style="width:100%;margin-top:8px"></audio>` : `<p class="faint small">No audio file attached — transcript only.</p>`}
       ${c.url ? `<a class="small" href="${escapeAttr(c.url)}" target="_blank" rel="noopener">open the recording &#8599;</a>` : ""}</div>

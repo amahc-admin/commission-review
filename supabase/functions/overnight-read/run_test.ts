@@ -73,7 +73,7 @@ Deno.test("a run reads rep orders, asks Claude once per order, and loads the fla
   assertEquals(imported.length, 1);
   const f = imported[0];
   assertEquals([f.kind, f.order_no, f.rep_id, f.order_date, f.amount], ["discount", "23544", "beshoy", "2026-09-01", 100]);
-  assertEquals([f.ai.verdict, f.ai.waive_amount, f.ai.confidence], ["waive", 100, 90]);
+  assertEquals([f.ai.source, f.ai.verdict, f.ai.waive_amount, f.ai.confidence], ["ai", "waive", 100, 90]);
   assertEquals(f.details.shopify_updated_at, ORDER.updatedAt);
 
   const ai = calls.find((c) => c.url.startsWith("https://api.anthropic.com"))!;
@@ -87,7 +87,7 @@ Deno.test("a run reads rep orders, asks Claude once per order, and loads the fla
 });
 
 Deno.test("an order already read at the same Shopify version is skipped -- no second AI call", async () => {
-  const { calls, imported } = setup({ "discount-23544": ORDER.updatedAt });
+  const { calls, imported } = setup({ "discount-23544": ORDER.updatedAt + "|ai" });
   const res: any = await run(new URLSearchParams("since=2026-09-01"));
   assertEquals([res.ok, res.skipped_unchanged, res.ai_reads], [true, 1, 0]);
   assertEquals(imported.length, 0);
@@ -105,4 +105,29 @@ Deno.test("a failed Shopify login is recorded on the run as an error", async () 
   assertEquals(res.ok, false);
   assert(String(res.error).includes("Shopify token: 401"));
   assertEquals(patches.at(-1).status, "error");
+});
+
+Deno.test("with no Claude key, flags still load with a rule-based suggestion and no AI call", async () => {
+  const { calls, imported } = setup();
+  Deno.env.delete("ANTHROPIC_API_KEY");
+  const res: any = await run(new URLSearchParams("since=2026-09-01"));
+  assertEquals([res.ok, res.mode, res.ai_reads, res.flags_written], [true, "rules", 0, 1]);
+  assertEquals(calls.filter((c) => c.url.startsWith("https://api.anthropic.com")).length, 0);
+  const f = imported[0];
+  assertEquals([f.ai.source, f.ai.verdict, f.ai.waive_amount], ["rules", "waive", 100]);
+  assert(f.ai.points[0].includes("B33RMONEY was live"));
+});
+
+Deno.test("once a key is added, rule-checked orders are upgraded to an AI read", async () => {
+  const { imported } = setup({ "discount-23544": ORDER.updatedAt + "|rules" });
+  const res: any = await run(new URLSearchParams("since=2026-09-01"));
+  assertEquals([res.mode, res.ai_reads, res.skipped_unchanged], ["ai", 1, 0]);
+  assertEquals(imported[0].ai.source, "ai");
+});
+
+Deno.test("rules mode never downgrades an order that already has an AI read", async () => {
+  const { imported } = setup({ "discount-23544": ORDER.updatedAt + "|ai" });
+  Deno.env.delete("ANTHROPIC_API_KEY");
+  const res: any = await run(new URLSearchParams("since=2026-09-01"));
+  assertEquals([res.mode, res.skipped_unchanged, imported.length], ["rules", 1, 0]);
 });

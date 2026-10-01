@@ -1,6 +1,6 @@
 // deno test supabase/functions/overnight-read/logic_test.ts
-import { assertEquals } from "jsr:@std/assert@1";
-import { attributeRep, flagsForOrder, isRepOrder, type ShopifyOrder, toAiField } from "./logic.ts";
+import { assert, assertEquals } from "jsr:@std/assert@1";
+import { attributeRep, flagsForOrder, isRepOrder, rulesRead, type ShopifyOrder, toAiField } from "./logic.ts";
 
 const m = (n: number) => ({ shopMoney: { amount: String(n) } });
 const people = [
@@ -99,4 +99,12 @@ Deno.test("AI read is clamped and its verdict made consistent with the amount", 
   assertEquals(toAiField(d, { kind: "discount", verdict: "partial", waive_amount: 9999, confidence: 180, summary: "s", points: [] }, at).waive_amount, 509);
   assertEquals(toAiField(d, { kind: "discount", verdict: "waive", waive_amount: 0, confidence: 50, summary: "s", points: [] }, at).verdict, "counts");
   assertEquals(toAiField(d, undefined, at).verdict, null);
+});
+
+Deno.test("rule check on 23544: waive the live $27 code, the rest counts", () => {
+  const [d, fr] = flagsForOrder(order23544, "beshoy", windows, opts);
+  const r = rulesRead(d, "2026-10-01T02:00:00Z");
+  assertEquals([r.source, r.verdict, r.waive_amount, r.points.length], ["rules", "partial", 27, 4]);
+  assert(r.points.some((p) => p.includes("was live on the site on 1 Sep")));
+  assertEquals(rulesRead(fr, "x").verdict, "counts");
 });

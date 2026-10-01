@@ -81,6 +81,14 @@ Reviewers can also preview the ping, or post it by hand, from the board
 5. Asks Claude (Opus 5.5) for the suggestion.
 6. Loads everything onto the board.
 
+**Without a Claude key it still runs, for free.** If `ANTHROPIC_API_KEY`
+isn't set, step 5 is replaced by a rule check worked out from the order
+alone: live codes and automatic promos are waived, and manual discounts,
+free items and shipping under list price count. The board labels these
+**Rules:** (not **AI:**) and offers **Accept suggestion**. Add the key
+later and the next run upgrades those orders to a full AI read. An order
+that already has an AI read is never downgraded.
+
 An order already read at the same Shopify version is skipped, so it never
 pays for the same read twice. Reviewers see when it last ran at the top of
 the board, plus any order it couldn't match to a rep.
@@ -94,7 +102,7 @@ the board, plus any order it couldn't match to a rep.
    |---|---|
    | `SHOPIFY_STORE_DOMAIN` | `amahc.myshopify.com` |
    | `SHOPIFY_CLIENT_ID` / `SHOPIFY_CLIENT_SECRET` | the Commission Review app in the Shopify Dev Dashboard (read-only scopes: `read_orders, read_all_orders, read_draft_orders, read_customers, read_discounts, read_shipping`) |
-   | `ANTHROPIC_API_KEY` | console.anthropic.com → API Keys |
+   | `ANTHROPIC_API_KEY` | *optional*: console.anthropic.com → API Keys. Leave unset to run on rules only. |
    | `CRON_SECRET` | the value shown by step 5 below |
 
 3. **Let GitHub deploy the function.** Create a Supabase access token at

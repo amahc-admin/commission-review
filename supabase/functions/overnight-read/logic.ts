@@ -258,10 +258,11 @@ export function aiPayload(order: ShopifyOrder, flags: FlagDraft[]) {
 // Folds the AI's read into the flag's ai field, keeping the numbers sane
 // whatever the model returned.
 export function toAiField(flag: FlagDraft, read: AiRead | undefined, reviewedAt: string) {
-  if (!read) return { verdict: null, summary: "The AI read didn't come back for this order.", points: [], quotes: [], reviewed_at: reviewedAt };
+  if (!read) return { source: "ai", verdict: null, summary: "The AI read didn't come back for this order.", points: [], quotes: [], reviewed_at: reviewedAt };
   const w = Math.min(Math.max(Number(read.waive_amount) || 0, 0), flag.amount);
   const verdict = w <= 0.005 ? "counts" : w >= flag.amount - 0.005 ? "waive" : "partial";
   return {
+    source: "ai",
     verdict,
     waive_amount: round2(verdict === "counts" ? 0 : verdict === "waive" ? flag.amount : w),
     confidence: Math.min(Math.max(Math.round(Number(read.confidence) || 0), 0), 100),
@@ -270,5 +271,49 @@ export function toAiField(flag: FlagDraft, read: AiRead | undefined, reviewedAt:
     discussed_on_call: false,
     quotes: [],
     reviewed_at: reviewedAt,
+  };
+}
+
+// ============================== no-AI mode ==============================
+
+const money = (n: number) => "$" + Math.round(n).toLocaleString("en-AU");
+
+// The suggestion the rules alone support, for when there's no Claude key
+// (or ?ai=0). Labelled source "rules" so the board shows it as a rule
+// check, not an AI read, and the next AI-enabled run upgrades it.
+export function rulesRead(flag: FlagDraft, reviewedAt: string) {
+  const base = { source: "rules", confidence: null, discussed_on_call: false, quotes: [], reviewed_at: reviewedAt };
+  if (flag.kind === "discount") {
+    const [, mm, dd] = flag.order_date.split("-");
+    const date = `${Number(dd)} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(mm) - 1]}`;
+    const points = flag.slices.map((sl) => {
+      if (sl.type === "promo") return `${sl.label} is a site-wide automatic promo — company's. Waived.`;
+      if (sl.type === "code" && sl.side === "company") return `Code ${sl.label} was live on the site on ${date} — company's. Waived.`;
+      if (sl.type === "code") return `Code ${sl.label}: ${sl.note}. Counts unless the rep shows otherwise.`;
+      if (sl.type === "free item") return `${sl.label}: no campaign behind it in Shopify. Counts unless the rep states a case.`;
+      if (sl.type === "named manual") return `"${sl.label}" (${money(sl.amount)}) was keyed in by hand, not an automatic promo. Counts unless the rep states a case.`;
+      return `Unnamed custom discount of ${money(sl.amount)} — the rep's own call. Counts.`;
+    });
+    const waived = round2(flag.slices.filter((x) => x.side === "company").reduce((a, x) => a + x.amount, 0));
+    const verdict = waived <= 0.005 ? "counts" : waived >= flag.amount - 0.005 ? "waive" : "partial";
+    return {
+      ...base, verdict, waive_amount: verdict === "counts" ? 0 : verdict === "waive" ? flag.amount : waived,
+      summary: `From the order alone: ${money(waived)} company-side, ${money(flag.amount - waived)} the rep's. Calls weren't checked.`,
+      points,
+    };
+  }
+  if (flag.kind === "freight") {
+    const d = flag.details as { charged?: number; cost?: number; service?: string };
+    return {
+      ...base, verdict: "counts", waive_amount: 0,
+      summary: `Shipping charged ${money(d.charged || 0)} against a ${money(d.cost || 0)} list price.`,
+      points: [`${d.service || "Shipping"}: ${money(flag.amount)} under the list price. Counts unless proven (Osama run, courier booking or a sign-off).`],
+    };
+  }
+  const reason = (flag.details as { reason?: string | null }).reason;
+  return {
+    ...base, verdict: null, waive_amount: 0,
+    summary: `Refund of ${money(flag.amount)}${reason ? ` — "${reason}"` : " with no note on the order"}. The rule check can't tell whose fault it was; check the reason.`,
+    points: [],
   };
 }

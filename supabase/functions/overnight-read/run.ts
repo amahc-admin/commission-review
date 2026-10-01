@@ -3,7 +3,7 @@
 import Anthropic from "npm:@anthropic-ai/sdk@0.129";
 import {
   AI_SCHEMA, AI_SYSTEM, aiPayload, type AiRead, attributeRep, type CodeWindow, type FlagDraft, flagsForOrder,
-  isRepOrder, type Person, type ShopifyOrder, toAiField,
+  isRepOrder, type Person, rulesRead, type ShopifyOrder, toAiField,
 } from "./logic.ts";
 
 const SHOPIFY_API_VERSION = "2026-07";
@@ -172,11 +172,14 @@ export async function run(params: URLSearchParams) {
   const since = params.get("since") || new Date(Date.now() - 3 * 86400_000).toISOString().slice(0, 10);
   const maxAi = Number(params.get("max_ai") || 40);
   const dry = params.get("dry") === "1";
+  // No Claude key yet (or ?ai=0): still flag everything, with a rule-based
+  // suggestion instead of an AI read. Free; upgraded once a key is added.
+  const useAi = !!Deno.env.get("ANTHROPIC_API_KEY") && params.get("ai") !== "0";
 
   const [runRow] = dry ? [{ id: null }] : await db("commission_runs", {
     method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({}),
   });
-  const summary: Record<string, unknown> = { since, orders_scanned: 0, flags_written: 0, ai_reads: 0, skipped_unchanged: 0, deferred: 0, unattributed: [] as unknown[] };
+  const summary: Record<string, unknown> = { mode: useAi ? "ai" : "rules", since, orders_scanned: 0, flags_written: 0, ai_reads: 0, skipped_unchanged: 0, deferred: 0, unattributed: [] as unknown[] };
   try {
     const ctx = await rpc("_commission_overnight_context", {});
     const people: Person[] = ctx.people;
@@ -203,17 +206,29 @@ export async function run(params: URLSearchParams) {
         (summary.unattributed as unknown[]).push({ order_no: order.name, staff: order.staffMember?.name || null, tags: order.tags, amount: probe.reduce((s, f) => s + f.amount, 0) });
         continue;
       }
-      if (probe.every((f) => seen[`${f.kind}-${f.order_no}`] === order.updatedAt)) {
+      // seen = "<shopify updatedAt>|<ai|rules>". Rules mode skips anything
+      // read at this version; AI mode only skips AI reads, so rule-checked
+      // orders get upgraded once a key is added.
+      const done = (f: FlagDraft) => {
+        const v = seen[`${f.kind}-${f.order_no}`] || "";
+        return useAi ? v === `${order.updatedAt}|ai` : v.startsWith(order.updatedAt + "|");
+      };
+      if (probe.every(done)) {
         (summary.skipped_unchanged as number)++;
         continue;
       }
       todo.push({ order, flags: probe });
     }
 
-    const batch = todo.slice(0, maxAi);
+    const batch = useAi ? todo.slice(0, maxAi) : todo;
     summary.deferred = todo.length - batch.length;
     const rows: unknown[] = [];
     await pool(batch, AI_CONCURRENCY, async ({ order, flags }) => {
+      const at = new Date().toISOString();
+      if (!useAi) {
+        for (const f of flags) rows.push({ ...f, ai: rulesRead(f, at) });
+        return;
+      }
       if (Date.now() - started > TIME_BUDGET_MS) { (summary.deferred as number)++; return; }
       let reads: AiRead[] = [];
       try {
@@ -223,7 +238,6 @@ export async function run(params: URLSearchParams) {
         if (e instanceof Anthropic.APIError) summary.ai_error = `${e.status}: ${e.message}`.slice(0, 300);
         else throw e;
       }
-      const at = new Date().toISOString();
       for (const f of flags) rows.push({ ...f, ai: toAiField(f, reads.find((r) => r.kind === f.kind), at) });
     });
 

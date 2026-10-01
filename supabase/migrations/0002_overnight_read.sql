@@ -105,7 +105,9 @@ as $$
   select jsonb_build_object(
     'people', (select coalesce(jsonb_agg(jsonb_build_object('id', id, 'name', name, 'match', shopify_match)), '[]'::jsonb)
                from commission_people where active and role = 'rep'),
-    'seen', (select coalesce(jsonb_object_agg(id, details->>'shopify_updated_at'), '{}'::jsonb)
+    -- "<shopify updatedAt>|<ai|rules>" per flag, so a rule-checked order can be
+    -- upgraded to an AI read once a Claude key is added.
+    'seen', (select coalesce(jsonb_object_agg(id, (details->>'shopify_updated_at') || '|' || coalesce(ai->>'source', 'ai')), '{}'::jsonb)
              from commission_flags where details ? 'shopify_updated_at')
   );
 $$;
@@ -138,6 +140,68 @@ declare
 begin
   perform _commission_require_reviewer(v_person);
   return (select to_jsonb(r) from commission_runs r order by id desc limit 1);
+end;
+$$;
+
+-- ============================== the Monday ping ==============================
+-- Same message as 0001, reworded so it stays true when the overnight read
+-- runs without AI ("pre-read overnight", not "the AI has pre-read").
+-- Optional: select vault.create_secret('https://amahc-admin.github.io/commission-review/', 'commission_board_url', 'Commission board link');
+-- turns the ping's last line into a clickable "Open the board" link.
+create or replace function _commission_weekly_text()
+returns text
+language plpgsql
+stable
+security definer
+set search_path = public, vault
+as $$
+declare
+  v_lines text := '';
+  r record;
+  v_reviewer_count int;
+  v_escalated int;
+begin
+  for r in
+    select f.rep_id,
+           count(*) filter (where f.kind = 'discount') as discounts,
+           coalesce(sum(f.amount) filter (where f.kind = 'discount'), 0) as discount_amt,
+           count(*) filter (where f.kind = 'freight') as freight,
+           count(*) filter (where _commission_needs_case(f)) as no_case,
+           coalesce(sum(f.amount) filter (where _commission_needs_case(f)), 0) as no_case_amt,
+           count(*) filter (where coalesce(f.ai->>'verdict', '') <> '') as ai_ready,
+           count(*) filter (where f.question is not null and f.rep_case is null) as questions
+    from commission_flags f
+    where f.decision is null and f.amount > 0
+    group by f.rep_id
+    order by 1
+  loop
+    v_lines := v_lines || E'\n• ' || _commission_mention(r.rep_id) || ' — '
+      || r.discounts || ' discount(s) (' || _commission_money(r.discount_amt) || ')'
+      || case when r.freight > 0 then ' · ' || r.freight || ' freight' else '' end
+      || ' · ' || case when r.no_case > 0 then '*' || r.no_case || ' with no case stated* (' || _commission_money(r.no_case_amt) || ' at stake)' else 'all cases stated' end
+      || ' · ' || r.ai_ready || ' have a suggestion ready'
+      || case when r.questions > 0 then ' · ' || r.questions || ' question(s) waiting on you' else '' end;
+  end loop;
+
+  if v_lines = '' then
+    return ':mag: *Weekly commission review* — nothing open this week. Board''s clean.';
+  end if;
+
+  select count(*) into v_reviewer_count from commission_flags where decision is null and amount > 0;
+  select count(*) into v_escalated from commission_flags where decision is null and escalated_at is not null;
+
+  return ':mag: *Weekly commission review — this week''s block.* Every order below was pre-read overnight. '
+    || 'Reps: state your case where money''s at stake, by Wednesday.'
+    || v_lines
+    || E'\n• Reviewers ('
+    || coalesce((select string_agg(_commission_mention(id), ', ' order by name) from commission_people where role = 'reviewer' and active), 'none set')
+    || ') — ' || v_reviewer_count || ' to decide'
+    || case when v_escalated > 0 then E'\n• ' || coalesce(
+         (select string_agg(_commission_mention(id), ', ') from commission_people where is_approver and active), 'Approver')
+         || ' — ' || v_escalated || ' escalated, waiting on your call' else '' end
+    || E'\n' || coalesce('<' || (select decrypted_secret from vault.decrypted_secrets where name = 'commission_board_url') || '|Open the board →>',
+                         'Open the board.')
+    || ' Anything undecided at month-end counts as-is.';
 end;
 $$;
 
