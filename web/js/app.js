@@ -100,6 +100,84 @@ function setRange(r) {
   try { localStorage.setItem("commission-review-range", JSON.stringify(r.preset ? { preset: r.preset } : { from: r.from, to: r.to })); } catch (e) {}
 }
 
+// ---- range calendar ----
+// One button opens a calendar: click a start day, then an end day. Two
+// months side by side (one on narrow screens), weeks starting Monday.
+function wireRangeCalendar(onPick) {
+  const btn = document.getElementById("c-range-btn");
+  const cal = document.getElementById("c-cal");
+  if (!btn || !cal) return;
+  const st = { start: null, hover: null, view: null };
+  const today = isoDate(new Date());
+  const dayIso = (y, m, d) => isoDate(new Date(y, m, d, 12));
+
+  const monthHtml = (y, m) => {
+    const first = new Date(y, m, 1, 12);
+    const lead = (first.getDay() + 6) % 7; // Monday first
+    const days = new Date(y, m + 1, 0).getDate();
+    const r = COMM.range;
+    const lo = st.start ? (st.hover && st.hover < st.start ? st.hover : st.start) : r.from;
+    const hi = st.start ? (st.hover && st.hover > st.start ? st.hover : st.start) : r.to;
+    let cells = "";
+    for (let i = 0; i < lead; i++) cells += `<span></span>`;
+    for (let d = 1; d <= days; d++) {
+      const iso = dayIso(y, m, d);
+      const cls = [
+        iso >= lo && iso <= hi ? "in" : "",
+        iso === lo ? "start" : "", iso === hi ? "end" : "",
+        iso === today ? "today" : "",
+      ].join(" ");
+      cells += `<button type="button" class="c-day ${cls}" data-day="${iso}">${d}</button>`;
+    }
+    return `<div class="c-cal-month"><div class="c-cal-title">${MONTHS[m]} ${y}</div>
+      <div class="c-cal-grid"><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span>${cells}</div></div>`;
+  };
+
+  const draw = () => {
+    const two = window.innerWidth > 720;
+    const [y, m] = st.view;
+    const next = new Date(y, m + 1, 1);
+    cal.innerHTML = `
+      <div class="c-cal-head">
+        <button type="button" class="c-cal-nav" data-nav="-1" aria-label="Previous month">&#8249;</button>
+        <span class="small muted">${st.start ? "Now click the end date" : "Click a start date, then an end date"}</span>
+        <button type="button" class="c-cal-nav" data-nav="1" aria-label="Next month">&#8250;</button>
+      </div>
+      <div class="c-cal-months">${monthHtml(y, m)}${two ? monthHtml(next.getFullYear(), next.getMonth()) : ""}</div>`;
+  };
+
+  const open = () => {
+    const [fy, fm] = COMM.range.from.split("-").map(Number);
+    st.start = null; st.hover = null;
+    // show the range's start month, keeping its end in view on wide screens
+    st.view = [fy, fm - 1];
+    cal.hidden = false; btn.setAttribute("aria-expanded", "true");
+    draw();
+  };
+  const close = () => { cal.hidden = true; btn.setAttribute("aria-expanded", "false"); st.start = null; };
+
+  btn.addEventListener("click", (e) => { e.stopPropagation(); cal.hidden ? open() : close(); });
+  cal.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const nav = e.target.closest("[data-nav]");
+    if (nav) { const d = new Date(st.view[0], st.view[1] + Number(nav.dataset.nav), 1); st.view = [d.getFullYear(), d.getMonth()]; return draw(); }
+    const day = e.target.closest("[data-day]");
+    if (!day) return;
+    if (!st.start) { st.start = day.dataset.day; st.hover = null; return draw(); }
+    let from = st.start, to = day.dataset.day;
+    if (to < from) [from, to] = [to, from];
+    close();
+    onPick(from, to);
+  });
+  cal.addEventListener("mouseover", (e) => {
+    const day = e.target.closest("[data-day]");
+    if (st.start && day && day.dataset.day !== st.hover) { st.hover = day.dataset.day; draw(); }
+  });
+  // close on an outside click or Escape (listeners replaced on each render)
+  document.onclick = (e) => { if (!cal.hidden && !cal.contains(e.target) && e.target !== btn) close(); };
+  document.onkeydown = (e) => { if (e.key === "Escape" && !cal.hidden) close(); };
+}
+
 function setCommissionSession(s) {
   COMM.session = s;
   COMM.board = null;
@@ -361,9 +439,9 @@ function renderCommissionBoard() {
 
   const rangeBar = `<div class="c-range">
       <div class="c-tabs">${PRESETS.map(([k, label]) => `<button class="c-tab ${r.preset === k ? "active" : ""}" data-preset="${k}">${label}</button>`).join("")}</div>
-      <div class="c-range-dates">
-        <label class="small muted" for="c-from">From</label><input type="date" id="c-from" class="c-select c-date" value="${r.from}">
-        <label class="small muted" for="c-to">to</label><input type="date" id="c-to" class="c-select c-date" value="${r.to}">
+      <div class="c-range-pick">
+        <button class="c-range-btn ${r.preset ? "" : "active"}" id="c-range-btn" aria-haspopup="dialog" aria-expanded="false">&#128197; ${escapeHtml(rangeLabel(r))} <span class="c-caret">&#9662;</span></button>
+        <div class="c-cal" id="c-cal" role="dialog" aria-label="Pick a date range" hidden></div>
       </div>
       <span class="small muted">Showing <strong>${escapeHtml(rangeLabel(r))}</strong> · ${b.flags.length} order(s)${signed ? ` · <span class="c-ok">&#10003; signed off by ${escapeHtml(signed.signed_by)}</span>` : ""}</span>
     </div>`;
@@ -419,15 +497,7 @@ function wireBoardChrome() {
   pageBody.querySelectorAll(".c-tab[data-preset]").forEach((t) => t.addEventListener("click", () => {
     reload({ ...presetRange(t.dataset.preset), preset: t.dataset.preset });
   }));
-  const fromIn = document.getElementById("c-from"), toIn = document.getElementById("c-to");
-  const onDates = () => {
-    let from = fromIn.value, to = toIn.value;
-    if (!from || !to) return;
-    if (to < from) [from, to] = [to, from];
-    reload({ from, to, preset: null });
-  };
-  fromIn.addEventListener("change", onDates);
-  toIn.addEventListener("change", onDates);
+  wireRangeCalendar((from, to) => reload({ from, to, preset: null }));
   document.getElementById("c-who").addEventListener("click", () => {
     if (confirm("Log out of the commission board" + (COMM.session ? " (" + COMM.session.name + ")" : "") + "?")) {
       setCommissionSession(null);

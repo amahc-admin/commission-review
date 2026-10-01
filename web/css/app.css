@@ -274,5 +274,26 @@ button, input { font-family: inherit; }
 .c-manual summary { cursor: pointer; text-align: left; }
 .c-range { display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap; margin-bottom: 14px; }
 .c-range .c-tabs { margin-bottom: 0; }
-.c-range-dates { display: inline-flex; align-items: center; gap: 6px; }
-.c-date { padding: 6px 8px; font-size: 13px; color-scheme: light dark; }
+.c-range-pick { position: relative; }
+.c-range-btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text-primary); border-radius: 999px; padding: 7px 14px; font: 600 13px Barlow, sans-serif; cursor: pointer; }
+.c-range-btn.active { background: var(--brand-navy); border-color: var(--brand-navy); color: #fff; }
+.c-caret { font-size: 10px; opacity: .7; }
+.c-cal { position: absolute; top: calc(100% + 8px); left: 0; z-index: 40; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-pop); padding: 12px 14px 14px; }
+.c-cal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.c-cal-nav { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--bg-soft); color: var(--text-primary); font-size: 18px; line-height: 1; cursor: pointer; }
+.c-cal-months { display: flex; gap: 22px; }
+.c-cal-title { font: 700 14px Barlow, sans-serif; text-align: center; margin-bottom: 6px; }
+.c-cal-grid { display: grid; grid-template-columns: repeat(7, 36px); row-gap: 2px; }
+.c-cal-grid > span { font: 600 11px "Barlow Condensed", sans-serif; text-transform: uppercase; color: var(--text-faint); text-align: center; padding: 4px 0; }
+.c-day { height: 34px; border: none; background: none; color: var(--text-primary); font: 500 13px Barlow, sans-serif; cursor: pointer; border-radius: 0; }
+.c-day:hover { background: var(--bg-soft-2); border-radius: 8px; }
+.c-day.in { background: rgba(255,229,0,.28); border-radius: 0; }
+.c-day.start, .c-day.end { background: var(--brand-navy); color: #fff; font-weight: 700; }
+.c-day.start { border-radius: 8px 0 0 8px; }
+.c-day.end { border-radius: 0 8px 8px 0; }
+.c-day.start.end { border-radius: 8px; }
+.c-day.today:not(.start):not(.end) { box-shadow: inset 0 0 0 1px var(--border-strong); border-radius: 8px; }
+@media (max-width: 720px) {
+  .c-cal { left: auto; right: auto; }
+  .c-cal-grid { grid-template-columns: repeat(7, minmax(34px, 1fr)); }
+}
