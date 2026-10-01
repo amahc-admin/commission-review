@@ -674,6 +674,7 @@ function reviewerActionsHtml(f) {
       <button class="c-link" data-act="ask-open">Ask ${rep} for their case</button>
       ${canEscalate ? `<span class="faint">·</span><button class="c-link" data-act="esc-open">${f.escalated_at ? "Update escalation" : "Escalate to " + escapeHtml(approverName())}</button>` : ""}
       ${f.escalated_at ? `<span class="faint">·</span><button class="c-link" data-act="unesc">Clear escalation</button>` : ""}
+      ${f.question ? `<span class="faint">·</span><button class="c-link" data-act="unask">Clear question</button>` : ""}
     </div>
     <div id="c-inline" class="c-inline"></div>
     <p class="small c-err" id="c-act-err"></p>
@@ -719,6 +720,7 @@ function historyHtml(f) {
     if (l.action === "asked") return "asked: “" + (d.question || "") + "”";
     if (l.action === "escalated") return "escalated: “" + (d.note || "") + "”";
     if (l.action === "unescalated") return "cleared the escalation";
+    if (l.action === "question cleared") return "cleared the question";
     if (l.action === "reopened") return "reopened it";
     if (l.action.indexOf("decided:") === 0) {
       const dec = l.action.slice(8);
@@ -782,6 +784,9 @@ function wireDetail(f) {
             await refreshCommission();
           } catch (x) { e.target.disabled = false; commissionError(err, x); }
         });
+      } else if (act === "unask") {
+        COMM.selectedId = f.id;
+        API.commissionAsk(s.id, s.passcode, f.id, "").then(refreshCommission).catch((x) => commissionError(err, x));
       } else if (act === "unesc") {
         COMM.selectedId = f.id;
         API.commissionEscalate(s.id, s.passcode, f.id, null).then(refreshCommission).catch((x) => commissionError(err, x));
