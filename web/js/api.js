@@ -76,6 +76,12 @@ const API = (() => {
     commissionBoard(personId, passcode, period) {
       return rpc("commission_board", { p_person_id: personId, p_passcode: passcode, p_period: period || null });
     },
+    commissionBoardRange(personId, passcode, from, to) {
+      return rpc("commission_board_range", { p_person_id: personId, p_passcode: passcode, p_from: from, p_to: to });
+    },
+    commissionSignOffRange(personId, passcode, from, to) {
+      return rpc("commission_sign_off_range", { p_person_id: personId, p_passcode: passcode, p_from: from, p_to: to });
+    },
     commissionAnswer(personId, passcode, flagId, reason, caseText, proof) {
       return rpc("commission_answer", { p_person_id: personId, p_passcode: passcode, p_flag_id: flagId, p_reason: reason, p_case: caseText, p_proof: proof || [] });
     },

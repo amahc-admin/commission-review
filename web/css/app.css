@@ -272,3 +272,7 @@ button, input { font-family: inherit; }
 .c-sync-status { text-align: left; min-height: 18px; margin-top: 4px; }
 .c-manual { border-top: 1px solid var(--border); padding-top: 12px; padding-bottom: 16px; }
 .c-manual summary { cursor: pointer; text-align: left; }
+.c-range { display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap; margin-bottom: 14px; }
+.c-range .c-tabs { margin-bottom: 0; }
+.c-range-dates { display: inline-flex; align-items: center; gap: 6px; }
+.c-date { padding: 6px 8px; font-size: 13px; color-scheme: light dark; }

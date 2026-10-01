@@ -48,6 +48,7 @@ const COMM = {
   period: null,
   week: null,      // 1..5, or "all"
   filter: "open",  // reviewer queue filter
+  range: null,     // { from, to, preset } -- what dates the board shows
   selectedId: null,
   people: null,    // login picker list
   loginPick: null,
@@ -59,6 +60,46 @@ const COMM = {
     if (raw) COMM.session = JSON.parse(raw);
   } catch (e) {}
 })();
+// ---- date range ----
+const PRESETS = [
+  ["thisWeek", "This Week"], ["lastWeek", "Last Week"], ["thisMonth", "This Month"], ["lastMonth", "Last Month"],
+];
+function isoDate(d) {
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+// Weeks run Monday to Sunday, like the Monday ping.
+function presetRange(name) {
+  const t = new Date(); t.setHours(12, 0, 0, 0);
+  const monday = new Date(t); monday.setDate(t.getDate() - ((t.getDay() + 6) % 7));
+  const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+  if (name === "thisWeek") return { from: isoDate(monday), to: isoDate(addDays(monday, 6)) };
+  if (name === "lastWeek") return { from: isoDate(addDays(monday, -7)), to: isoDate(addDays(monday, -1)) };
+  if (name === "lastMonth") return { from: isoDate(new Date(t.getFullYear(), t.getMonth() - 1, 1)), to: isoDate(new Date(t.getFullYear(), t.getMonth(), 0)) };
+  return { from: isoDate(new Date(t.getFullYear(), t.getMonth(), 1)), to: isoDate(new Date(t.getFullYear(), t.getMonth() + 1, 0)) };
+}
+function rangeLabel(r) {
+  const [fy, fm, fd] = r.from.split("-").map(Number), [ty, tm, td] = r.to.split("-").map(Number);
+  const a = fd + " " + MON3[fm - 1] + (fy !== ty ? " " + fy : ""), b = td + " " + MON3[tm - 1] + " " + ty;
+  return r.from === r.to ? b : a + " – " + b;
+}
+function presetName(r) {
+  const p = PRESETS.find(([k]) => k === r.preset);
+  return p ? p[1] : rangeLabel(r);
+}
+// Remembers the last choice in this browser. A preset ("Last Week") is
+// worked out fresh each visit; a custom range stays as picked.
+function loadRange() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem("commission-review-range") || "null"); } catch (e) {}
+  if (saved && saved.preset) return { ...presetRange(saved.preset), preset: saved.preset };
+  if (saved && saved.from && saved.to) return { from: saved.from, to: saved.to, preset: null };
+  return { ...presetRange("thisMonth"), preset: "thisMonth" };
+}
+function setRange(r) {
+  COMM.range = r;
+  try { localStorage.setItem("commission-review-range", JSON.stringify(r.preset ? { preset: r.preset } : { from: r.from, to: r.to })); } catch (e) {}
+}
+
 function setCommissionSession(s) {
   COMM.session = s;
   COMM.board = null;
@@ -205,26 +246,17 @@ async function renderCommission() {
   renderCommissionBoard();
 }
 
-async function loadCommissionBoard(period) {
+async function loadCommissionBoard() {
   const s = COMM.session;
-  const board = await API.commissionBoard(s.id, s.passcode, period || COMM.period);
+  if (!COMM.range) COMM.range = loadRange();
+  const board = await API.commissionBoardRange(s.id, s.passcode, COMM.range.from, COMM.range.to);
   COMM.board = board;
-  COMM.period = board.period;
   // Reviewers see when the overnight read last ran and anything it
   // couldn't put on a rep's board. Older databases without 0002 just skip it.
   COMM.lastRun = null;
   if (s.role === "reviewer") {
     try { COMM.lastRun = await API.commissionLastRun(s.id, s.passcode); } catch (e) {}
   }
-  const weeks = weeksPresent();
-  if (COMM.week !== "all" && !weeks.includes(COMM.week)) {
-    // open on the first week that still has something undecided
-    const open = weeks.find((w) => board.flags.some((f) => f.week === w && !f.decision && hasStake(f)));
-    COMM.week = open || "all";
-  }
-}
-function weeksPresent() {
-  return [...new Set(((COMM.board && COMM.board.flags) || []).map((f) => f.week))].sort();
 }
 async function refreshCommission() {
   await loadCommissionBoard();
@@ -287,7 +319,7 @@ async function renderCommissionLogin(message) {
       try {
         const who = await API.commissionLogin(COMM.loginPick, input.value);
         setCommissionSession({ id: who.id, name: who.name, role: who.role, passcode: input.value });
-        COMM.loginPick = null; COMM.period = null; COMM.selectedId = null;
+        COMM.loginPick = null; COMM.selectedId = null;
         renderCommission();
       } catch (e) {
         btn.disabled = false; btn.textContent = "Open My Board";
@@ -305,7 +337,7 @@ async function renderCommissionLogin(message) {
 
 function visibleFlags() {
   const b = COMM.board;
-  let flags = b.flags.filter((f) => COMM.week === "all" || f.week === COMM.week);
+  let flags = b.flags.slice();
   if (isReviewer()) {
     const fl = COMM.filter;
     if (fl === "open") flags = flags.filter((f) => !f.decision && hasStake(f));
@@ -322,15 +354,19 @@ function visibleFlags() {
 function renderCommissionBoard() {
   const b = COMM.board;
   const s = COMM.session;
-  const weeks = weeksPresent();
-  const weekFlags = b.flags.filter((f) => (COMM.week === "all" || f.week === COMM.week) && hasStake(f));
+  const r = COMM.range;
+  const weekFlags = b.flags.filter(hasStake);
   const decided = weekFlags.filter((f) => f.decision).length;
-  const signed = COMM.week !== "all" && (b.signoffs || []).find((x) => x.week === COMM.week);
+  const signed = b.signoff;
 
-  const tabs = [`<button class="c-tab ${COMM.week === "all" ? "active" : ""}" data-week="all">All ${MONTHS[Number(COMM.period.split("-")[1]) - 1]}</button>`]
-    .concat(weeks.map((w) => `<button class="c-tab ${COMM.week === w ? "active" : ""}" data-week="${w}">Week ${w} · ${weekRange(COMM.period, w)}${(b.signoffs || []).some((x) => x.week === w) ? " &#10003;" : ""}</button>`)).join("");
-
-  const periodOpts = (b.periods.length ? b.periods : [COMM.period]).map((p) => `<option value="${p}" ${p === COMM.period ? "selected" : ""}>${periodLabel(p)}</option>`).join("");
+  const rangeBar = `<div class="c-range">
+      <div class="c-tabs">${PRESETS.map(([k, label]) => `<button class="c-tab ${r.preset === k ? "active" : ""}" data-preset="${k}">${label}</button>`).join("")}</div>
+      <div class="c-range-dates">
+        <label class="small muted" for="c-from">From</label><input type="date" id="c-from" class="c-select c-date" value="${r.from}">
+        <label class="small muted" for="c-to">to</label><input type="date" id="c-to" class="c-select c-date" value="${r.to}">
+      </div>
+      <span class="small muted">Showing <strong>${escapeHtml(rangeLabel(r))}</strong> · ${b.flags.length} order(s)${signed ? ` · <span class="c-ok">&#10003; signed off by ${escapeHtml(signed.signed_by)}</span>` : ""}</span>
+    </div>`;
 
   const run = COMM.lastRun;
   const sum = (run && run.summary) || {};
@@ -352,20 +388,17 @@ function renderCommissionBoard() {
     <div class="c-head">
       <div>
         <h1 class="c-title">${isReviewer() ? "Commission review" : "Your commission review"}</h1>
-        <div class="muted small">
-          <select id="c-period" class="c-select">${periodOpts}</select>
-          · discounts over 5%, freight under cost, refunds, claims
-        </div>
+        <div class="muted small">Discounts over 5%, freight under cost, refunds, claims</div>
       </div>
       <div class="c-head-right">
         <div class="c-progress">
-          <div class="muted small">${decided} of ${weekFlags.length} decided ${COMM.week === "all" ? "this month" : "this week"}${signed ? " · signed off by " + escapeHtml(signed.signed_by) : ""}</div>
+          <div class="muted small">${decided} of ${weekFlags.length} decided ${r.preset ? escapeHtml(presetName(r).toLowerCase()) : "in this range"}</div>
           <div class="c-progress-track"><span style="width:${weekFlags.length ? (100 * decided / weekFlags.length) : 0}%"></span></div>
         </div>
         <button class="c-who" id="c-who" title="Switch person / log out"><span class="pill-avatar">${escapeHtml(initialsFrom(s.name))}</span>${isReviewer() ? "Reviewing as " : ""}${escapeHtml(s.name)}</button>
       </div>
     </div>
-    <div class="c-tabs">${tabs}</div>
+    ${rangeBar}
     ${isReviewer() ? `<div class="c-tools">${reviewerTools}</div>` : repSummaryHtml()}
     <div class="c-split">
       <div class="c-queue" id="c-queue">${isReviewer() ? reviewerQueueHtml() : repQueueHtml()}</div>
@@ -378,19 +411,27 @@ function renderCommissionBoard() {
 }
 
 function wireBoardChrome() {
-  document.getElementById("c-period").addEventListener("change", async (e) => {
-    COMM.period = e.target.value; COMM.selectedId = null; COMM.week = null;
-    try { await loadCommissionBoard(COMM.period); renderCommissionBoard(); } catch (err) { commissionError(null, err); }
-  });
-  pageBody.querySelectorAll(".c-tab").forEach((t) => t.addEventListener("click", () => {
-    COMM.week = t.dataset.week === "all" ? "all" : Number(t.dataset.week);
+  const reload = async (range) => {
+    setRange(range);
     COMM.selectedId = null;
-    renderCommissionBoard();
+    try { await loadCommissionBoard(); renderCommissionBoard(); } catch (err) { commissionError(null, err); }
+  };
+  pageBody.querySelectorAll(".c-tab[data-preset]").forEach((t) => t.addEventListener("click", () => {
+    reload({ ...presetRange(t.dataset.preset), preset: t.dataset.preset });
   }));
+  const fromIn = document.getElementById("c-from"), toIn = document.getElementById("c-to");
+  const onDates = () => {
+    let from = fromIn.value, to = toIn.value;
+    if (!from || !to) return;
+    if (to < from) [from, to] = [to, from];
+    reload({ from, to, preset: null });
+  };
+  fromIn.addEventListener("change", onDates);
+  toIn.addEventListener("change", onDates);
   document.getElementById("c-who").addEventListener("click", () => {
     if (confirm("Log out of the commission board" + (COMM.session ? " (" + COMM.session.name + ")" : "") + "?")) {
       setCommissionSession(null);
-      COMM.selectedId = null; COMM.period = null;
+      COMM.selectedId = null;
       renderCommission();
     }
   });
@@ -407,7 +448,7 @@ function wireBoardChrome() {
     if (so) so.addEventListener("click", async () => {
       so.disabled = true;
       try {
-        await API.commissionSignOffWeek(COMM.session.id, COMM.session.passcode, COMM.period, COMM.week);
+        await API.commissionSignOffRange(COMM.session.id, COMM.session.passcode, COMM.range.from, COMM.range.to);
         await refreshCommission();
       } catch (err) { so.disabled = false; commissionError(null, err); }
     });
@@ -432,16 +473,16 @@ function queueRowHtml(f, num) {
 
 function reviewerQueueHtml() {
   const flags = visibleFlags();
-  const allWeek = COMM.board.flags.filter((f) => (COMM.week === "all" || f.week === COMM.week) && hasStake(f));
-  const canSign = COMM.week !== "all" && allWeek.length && allWeek.every((f) => f.decision);
+  const allWeek = COMM.board.flags.filter(hasStake);
+  const canSign = allWeek.length && allWeek.every((f) => f.decision) && !COMM.board.signoff;
   const opts = [["open", "Needs a decision"], ["answered", "Rep answered"], ["escalated", "Escalated"], ["decided", "Decided"], ["all", "Everything"]]
     .map(([v, l]) => `<option value="${v}" ${COMM.filter === v ? "selected" : ""}>${l}</option>`).join("");
   return `
-    <div class="c-queue-head"><span>This ${COMM.week === "all" ? "month's" : "week's"} queue — pre-read overnight</span>
+    <div class="c-queue-head"><span>Queue — pre-read overnight</span>
       <select id="c-filter" class="c-select">${opts}</select></div>
     <div class="c-rows">${flags.map((f) => queueRowHtml(f)).join("") || `<p class="muted small c-empty">Nothing here.</p>`}</div>
     <div class="c-queue-foot">
-      ${COMM.week !== "all" ? `<button class="btn btn-primary c-btn-sm" id="c-signoff" ${canSign ? "" : "disabled"} title="${canSign ? "" : "Every flag with money at stake needs a decision first"}">Sign Off Week ${COMM.week}</button>` : ""}
+      ${allWeek.length && !COMM.board.signoff ? `<button class="btn btn-primary c-btn-sm" id="c-signoff" ${canSign ? "" : "disabled"} title="${canSign ? "" : "Every flag with money at stake needs a decision first"}">Sign Off ${escapeHtml(presetName(COMM.range))}</button>` : ""}
       <span class="faint small">Anything undecided at month-end counts against the rep as-is.</span>
     </div>`;
 }
@@ -449,7 +490,7 @@ function reviewerQueueHtml() {
 // The rep's own screen: the numbered "needs an answer" list first, then
 // the three lanes.
 function repQueueHtml() {
-  const flags = COMM.board.flags.filter((f) => COMM.week === "all" || f.week === COMM.week);
+  const flags = COMM.board.flags;
   const todo = flags.filter((f) => needsCase(f) || questionOpen(f));
   const lane = (kinds, title) => {
     const rows = flags.filter((f) => kinds.includes(f.kind) && !todo.includes(f));
@@ -978,13 +1019,13 @@ function parseCsv(text) {
 }
 
 function showImportModal() {
-  const month = periodLabel(COMM.period);
+  const month = rangeLabel(COMM.range);
   const m = commissionModal("c-import-modal", `
     <div class="c-modal-head"><strong>Sync from Shopify</strong><button class="c-x" data-close aria-label="Close">&times;</button></div>
-    <p class="small" style="text-align:left">Pulls ${escapeHtml(month)}'s rep orders from Shopify, and their Aircall calls, right now
+    <p class="small" style="text-align:left">Pulls rep orders from ${escapeHtml(month)} from Shopify, and their Aircall calls, right now
       instead of waiting for tonight's run. Takes a minute or two. Reps' answers and your decisions are never changed.</p>
     <div class="c-sync-status small" id="c-sync-status"></div>
-    <div class="c-modal-foot"><button class="btn btn-primary" id="c-sync-go">Sync ${escapeHtml(month)}</button><button class="btn btn-secondary" data-close>Close</button></div>
+    <div class="c-modal-foot"><button class="btn btn-primary" id="c-sync-go">Sync Now</button><button class="btn btn-secondary" data-close>Close</button></div>
     <details class="c-manual">
       <summary class="small muted">Or import a CSV file instead</summary>
       <p class="small" style="text-align:left">For orders that aren't in Shopify. One row per order, with a header row:
@@ -1008,7 +1049,7 @@ function showImportModal() {
       // keep going until nothing is left (with a safety cap).
       for (; round < 15; round++) {
         status.textContent = round === 0 ? "Syncing... this takes a minute or two." : `Still going — round ${round + 1} (Aircall allows one request a second)...`;
-        const r = await API.syncShopify(s.id, s.passcode, COMM.period + "-01");
+        const r = await API.syncShopify(s.id, s.passcode, COMM.range.from);
         if (r.busy) { status.textContent = "A sync is already running (maybe tonight's). Try again in a couple of minutes."; break; }
         if (!r.ok) throw new Error(r.error || "the sync failed");
         total += r.flags_written || 0;
@@ -1053,7 +1094,7 @@ function showImportModal() {
     try {
       const n = await API.commissionImport(COMM.session.id, COMM.session.passcode, rows);
       m.remove();
-      COMM.period = null; COMM.week = null;
+      COMM.selectedId = null;
       await refreshCommission();
       alert(n + " row(s) imported.");
     } catch (x) { e.target.disabled = false; err.textContent = x.message; }
@@ -1103,7 +1144,7 @@ function showTotalsModal() {
       <td class="c-ok">${cMoney(t.over)}</td><td>${cMoney(t.claimsPushed)}${t.claimsOpen ? ` <span class="faint">+${cMoney(t.claimsOpen)} open</span>` : ""}</td></tr>`;
   }).join("");
   commissionModal("c-totals-modal", `
-    <div class="c-modal-head"><strong>Payout totals — ${periodLabel(COMM.period)}</strong><button class="c-x" data-close aria-label="Close">&times;</button></div>
+    <div class="c-modal-head"><strong>Payout totals — ${escapeHtml(rangeLabel(COMM.range))}</strong><button class="c-x" data-close aria-label="Close">&times;</button></div>
     <p class="small muted" style="text-align:left">Dollars that count against each rep's commission base. "Still open" counts as-is if it isn't decided by month-end. Feed the decided numbers into the cash-flow forecast weekly.</p>
     <div style="overflow-x:auto"><table class="c-table"><thead><tr><th>Rep</th><th>Flagged</th><th>Waived</th><th>Counts (decided)</th><th>Still open</th><th>Freight over-recovered</th><th>Claims pushed</th></tr></thead>
     <tbody>${rows || `<tr><td colspan="7" class="muted">No flags this month.</td></tr>`}</tbody></table></div>
@@ -1131,7 +1172,7 @@ function exportCsv() {
   const blob = new Blob([lines.join("\n")], { type: "text/csv" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "commission-review-" + COMM.period + ".csv";
+  a.download = "commission-review-" + COMM.range.from + "-to-" + COMM.range.to + ".csv";
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
