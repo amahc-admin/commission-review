@@ -543,8 +543,7 @@ function breakdownHtml(f) {
     return `<div class="c-card"><div class="c-card-h">Where the discount came from</div>
       ${slices.map((sl) => `<div class="c-slice">
         <span class="c-chip ${sliceClass(sl)}">${escapeHtml(sl.type || "discount")}</span>
-        <span class="c-slice-label">${escapeHtml(sl.label || "")}</span>
-        <span class="faint small c-slice-note">${escapeHtml(sl.note || "")}</span>
+        <span class="c-slice-label">${escapeHtml(sl.label || "")}${sl.note ? `<span class="faint small c-slice-note">${escapeHtml(sl.note)}</span>` : ""}</span>
         <strong class="c-slice-amt">${cMoney(sl.amount)}</strong></div>`).join("")}
     </div>`;
   }

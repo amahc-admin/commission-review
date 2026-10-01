@@ -169,7 +169,11 @@ button, input { font-family: inherit; }
 .c-d-order { font: 700 24px "Barlow Condensed", sans-serif; }
 .c-card { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 12px; }
 .c-card-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font: 700 11px "Barlow Condensed", sans-serif; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin-bottom: 10px; }
-.c-slice { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto 64px; align-items: center; gap: 10px; padding: 6px 0; font-size: 13.5px; border-top: 1px solid var(--border); }
+.c-slice { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 7px 0; font-size: 13.5px; border-top: 1px solid var(--border); }
+/* The note sits on its own line under the item name, so a long name and a
+   long note can never squeeze each other at narrow widths. */
+.c-slice-label { overflow-wrap: anywhere; }
+.c-slice-note { display: block; margin-top: 1px; }
 .c-slice:first-of-type { border-top: none; }
 .c-slice .c-chip { justify-self: start; }
 .c-slice-amt { text-align: right; font-variant-numeric: tabular-nums; }
@@ -250,8 +254,7 @@ button, input { font-family: inherit; }
     .c-split { grid-template-columns: 1fr; }
     .c-queue { border-right: none; border-bottom: 1px solid var(--border); }
     .c-stats { grid-template-columns: 1fr; }
-    .c-slice { grid-template-columns: auto minmax(0, 1fr) 56px; }
-    .c-slice-note { display: none; }
+    .c-slice { grid-template-columns: auto minmax(0, 1fr) auto; }
     .c-detail { padding: 16px; }
   }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
