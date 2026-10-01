@@ -625,7 +625,7 @@ function proofListHtml(proof) {
 function repSideHtml(f) {
   const bits = [];
   if (f.question) {
-    bits.push(`<div class="c-callout c-callout-ask"><strong>${escapeHtml(f.question_by || "Reviewer")} asked</strong> <span class="faint small">${cWhen(f.question_at)}</span><p>${escapeHtml(f.question)}</p></div>`);
+    bits.push(`<div class="c-callout c-callout-ask"><strong>${escapeHtml(f.question_by || "Reviewer")} asked</strong> <span class="faint small">${cWhen(f.question_at)}</span>${isReviewer() ? `<button class="c-callout-del" data-act="unask" title="Delete this question">Delete</button>` : ""}<p>${escapeHtml(f.question)}</p></div>`);
   }
   if (f.rep_case) {
     bits.push(`<div class="c-callout"><strong>${escapeHtml(personNameById(f.rep_id))}'s case</strong> <span class="faint small">${cWhen(f.rep_answered_at)}</span>
@@ -633,7 +633,7 @@ function repSideHtml(f) {
       ${proofListHtml(f.rep_proof)}</div>`);
   }
   if (f.escalated_at && !f.decision) {
-    bits.push(`<div class="c-callout c-callout-esc"><strong>Escalated to ${escapeHtml(approverName())}</strong> by ${escapeHtml(f.escalated_by || "")} <span class="faint small">${cWhen(f.escalated_at)}</span><p>${escapeHtml(f.escalated_note || "")}</p></div>`);
+    bits.push(`<div class="c-callout c-callout-esc"><strong>Escalated to ${escapeHtml(approverName())}</strong> by ${escapeHtml(f.escalated_by || "")} <span class="faint small">${cWhen(f.escalated_at)}</span>${isReviewer() ? `<button class="c-callout-del" data-act="unesc" title="Delete this escalation">Delete</button>` : ""}<p>${escapeHtml(f.escalated_note || "")}</p></div>`);
   }
   if (f.decision) {
     bits.push(`<div class="c-callout c-callout-done"><strong>${escapeHtml(decisionText(f))}</strong> — ${escapeHtml(f.decided_by || "")} <span class="faint small">${cWhen(f.decided_at)}</span>${f.decision_note ? `<p>${escapeHtml(f.decision_note)}</p>` : ""}</div>`);
@@ -673,8 +673,7 @@ function reviewerActionsHtml(f) {
       <span class="small muted">Not sure?</span>
       <button class="c-link" data-act="ask-open">Ask ${rep} for their case</button>
       ${canEscalate ? `<span class="faint">·</span><button class="c-link" data-act="esc-open">${f.escalated_at ? "Update escalation" : "Escalate to " + escapeHtml(approverName())}</button>` : ""}
-      ${f.escalated_at ? `<span class="faint">·</span><button class="c-link" data-act="unesc">Clear escalation</button>` : ""}
-      ${f.question ? `<span class="faint">·</span><button class="c-link" data-act="unask">Clear question</button>` : ""}
+
     </div>
     <div id="c-inline" class="c-inline"></div>
     <p class="small c-err" id="c-act-err"></p>
@@ -785,9 +784,11 @@ function wireDetail(f) {
           } catch (x) { e.target.disabled = false; commissionError(err, x); }
         });
       } else if (act === "unask") {
+        if (!confirm("Delete this question? " + personNameById(f.rep_id) + " won't see it any more (it stays in the order's history).")) return;
         COMM.selectedId = f.id;
         API.commissionAsk(s.id, s.passcode, f.id, "").then(refreshCommission).catch((x) => commissionError(err, x));
       } else if (act === "unesc") {
+        if (!confirm("Delete this escalation? It stays in the order's history.")) return;
         COMM.selectedId = f.id;
         API.commissionEscalate(s.id, s.passcode, f.id, null).then(refreshCommission).catch((x) => commissionError(err, x));
       }

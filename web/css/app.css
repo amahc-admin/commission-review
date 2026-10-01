@@ -200,6 +200,9 @@ button, input { font-family: inherit; }
 .c-trail { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: var(--bg-soft); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; margin-top: 6px; cursor: pointer; color: var(--text-primary); font: 13px Barlow, sans-serif; }
 .c-callout { border: 1px solid var(--border); background: var(--bg-soft); border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 12px; font-size: 13.5px; }
 .c-callout p { margin-top: 6px; }
+.c-callout { position: relative; }
+.c-callout-del { position: absolute; top: 10px; right: 12px; background: none; border: 1px solid transparent; border-radius: 6px; padding: 2px 8px; font: 600 12px Barlow, sans-serif; color: var(--text-muted); cursor: pointer; }
+.c-callout-del:hover { color: var(--red); border-color: var(--red); background: var(--surface); }
 .c-callout-ask { background: var(--amber-bg); border-color: transparent; }
 .c-callout-esc { background: rgba(139,92,246,.10); border-color: transparent; }
 .c-callout-done { background: var(--green-bg); border-color: transparent; }
