@@ -121,7 +121,11 @@ the board, plus any order it couldn't match to a rep.
 5. **Schedule it.** Run `supabase/schedule-overnight-read.sql`. It ends by
    showing a random secret: copy that into Edge Functions → Secrets as
    `CRON_SECRET`.
-6. **Backfill a month by hand (optional).** Each call reads up to 40
+6. **Sync now from the board.** Reviewers can click **Sync from Shopify**
+   to run the read straight away for the month on screen. It keeps going
+   round by round until the whole month is done. Only one run happens at a
+   time, so it says so if tonight's is still going. To do the same from SQL:
+   **Backfill a month by hand (optional).** Each call reads up to 40
    orders with AI and leaves the rest for the next call:
    ```sql
    select net.http_post(

@@ -266,3 +266,6 @@ button, input { font-family: inherit; }
   .brand-mark { width: 28px; height: 28px; font-size: 15px; }
   .brand-sub { display: none; }
 }
+.c-sync-status { text-align: left; min-height: 18px; margin-top: 4px; }
+.c-manual { border-top: 1px solid var(--border); padding-top: 12px; padding-bottom: 16px; }
+.c-manual summary { cursor: pointer; text-align: left; }

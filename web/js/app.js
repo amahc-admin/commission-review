@@ -342,7 +342,7 @@ function renderCommissionBoard() {
       ${unattributed.length ? `<button class="c-link small" id="c-unattr">${unattributed.length} order(s) not matched to a rep</button>` : ""}`;
 
   const reviewerTools = isReviewer() ? `
-      <button class="btn btn-secondary c-btn-sm" id="c-import">Import flags</button>
+      <button class="btn btn-secondary c-btn-sm" id="c-import">Sync from Shopify</button>
       <button class="btn btn-secondary c-btn-sm" id="c-ping">Monday ping</button>
       <button class="btn btn-secondary c-btn-sm" id="c-totals">Payout totals</button>
       <button class="btn btn-secondary c-btn-sm" id="c-export">Export CSV</button>
@@ -979,15 +979,56 @@ function parseCsv(text) {
 }
 
 function showImportModal() {
+  const month = periodLabel(COMM.period);
   const m = commissionModal("c-import-modal", `
-    <div class="c-modal-head"><strong>Import flags</strong><button class="c-x" data-close aria-label="Close">&times;</button></div>
-    <p class="small" style="text-align:left">Paste a JSON array (the overnight AI read's output) or a CSV with a header row:
-      <code>order_no, kind, order_date, customer, rep, gross, amount, pct, order_url</code> (freight can add <code>service, charged, cost</code>).
-      Re-importing an order refreshes its numbers and AI read — reps' answers and decisions are never touched.</p>
-    <textarea id="c-import-text" class="c-input" rows="10" placeholder='[{"order_no":"23544","kind":"discount","order_date":"2026-09-01","rep":"Beshoy","amount":509, ...}]'></textarea>
-    <div class="row" style="gap:10px;margin-top:6px"><input type="file" id="c-import-file" accept=".csv,.json,text/csv,application/json"><span class="small muted" id="c-import-info"></span></div>
-    <div class="c-modal-foot"><button class="btn btn-primary" id="c-import-go">Import</button><button class="btn btn-secondary" data-close>Cancel</button>
-      <span class="small c-err" id="c-import-err"></span></div>`, true);
+    <div class="c-modal-head"><strong>Sync from Shopify</strong><button class="c-x" data-close aria-label="Close">&times;</button></div>
+    <p class="small" style="text-align:left">Pulls ${escapeHtml(month)}'s rep orders from Shopify, and their Aircall calls, right now
+      instead of waiting for tonight's run. Takes a minute or two. Reps' answers and your decisions are never changed.</p>
+    <div class="c-sync-status small" id="c-sync-status"></div>
+    <div class="c-modal-foot"><button class="btn btn-primary" id="c-sync-go">Sync ${escapeHtml(month)}</button><button class="btn btn-secondary" data-close>Close</button></div>
+    <details class="c-manual">
+      <summary class="small muted">Or import a CSV file instead</summary>
+      <p class="small" style="text-align:left">For orders that aren't in Shopify. One row per order, with a header row:
+        <code>order_no, order_date, rep, amount</code>. Optional columns: <code>kind</code> (discount, freight, refund or claim),
+        <code>customer</code>, <code>gross</code>, <code>pct</code>.</p>
+      <div class="row" style="gap:10px"><input type="file" id="c-import-file" accept=".csv,.json,text/csv,application/json"><span class="small muted" id="c-import-info"></span></div>
+      <textarea id="c-import-text" class="c-input" rows="5" placeholder="...or paste the CSV here" style="margin-top:8px"></textarea>
+      <div class="row" style="gap:10px;margin-top:6px"><button class="btn btn-secondary c-btn-sm" id="c-import-go">Import file</button><span class="small c-err" id="c-import-err"></span></div>
+    </details>`, true);
+
+  // ---- sync ----
+  const status = m.querySelector("#c-sync-status");
+  const go = m.querySelector("#c-sync-go");
+  go.addEventListener("click", async () => {
+    go.disabled = true;
+    const s = COMM.session;
+    let round = 0, total = 0, calls = 0;
+    // (round stays at 8 only if every round still had orders left)
+    try {
+      // Aircall's rate limit means a full month can take a few rounds;
+      // keep going until nothing is left (with a safety cap).
+      for (; round < 8; round++) {
+        status.textContent = round === 0 ? "Syncing... this takes a minute or two." : `Still going — round ${round + 1} (Aircall allows one request a second)...`;
+        const r = await API.syncShopify(s.id, s.passcode, COMM.period + "-01");
+        if (r.busy) { status.textContent = "A sync is already running (maybe tonight's). Try again in a couple of minutes."; break; }
+        if (!r.ok) throw new Error(r.error || "the sync failed");
+        total += r.flags_written || 0;
+        calls += r.calls_attached || 0;
+        if (!r.deferred) {
+          status.innerHTML = `<span class="c-ok">Done.</span> ${r.orders_scanned} orders checked, ${total} flag(s) updated${calls ? `, ${calls} call(s) attached` : ""}.`;
+          break;
+        }
+      }
+      if (round === 8) status.textContent = "Lots of orders this month — click Sync again to finish the rest.";
+      await refreshCommission();
+    } catch (e) {
+      status.innerHTML = `<span class="c-err">${escapeHtml(e.message)}</span>`;
+    } finally {
+      go.disabled = false;
+    }
+  });
+
+  // ---- manual CSV / JSON import ----
   const ta = m.querySelector("#c-import-text");
   const info = m.querySelector("#c-import-info");
   const parse = () => {
@@ -996,21 +1037,21 @@ function showImportModal() {
     if (t[0] === "[" || t[0] === "{") { const j = JSON.parse(t); return Array.isArray(j) ? j : [j]; }
     return parseCsv(t);
   };
-  const preview = () => { try { const r = parse(); info.textContent = r.length ? r.length + " flag(s) ready" : ""; } catch (e) { info.textContent = "Not valid JSON yet"; } };
+  const preview = () => { try { const r = parse(); info.textContent = r.length ? r.length + " row(s) ready" : ""; } catch (e) { info.textContent = "That doesn't look like a CSV"; } };
   ta.addEventListener("input", preview);
   m.querySelector("#c-import-file").addEventListener("change", async (e) => { const f = e.target.files[0]; if (f) { ta.value = await f.text(); preview(); } });
   m.querySelector("#c-import-go").addEventListener("click", async (e) => {
     const err = m.querySelector("#c-import-err");
     let rows;
-    try { rows = parse(); } catch (x) { err.textContent = "That isn't valid JSON: " + x.message; return; }
-    if (!rows.length) { err.textContent = "Nothing to import."; return; }
+    try { rows = parse(); } catch (x) { err.textContent = "Couldn't read that: " + x.message; return; }
+    if (!rows.length) { err.textContent = "Choose a file or paste the rows first."; return; }
     e.target.disabled = true; err.textContent = "Importing...";
     try {
       const n = await API.commissionImport(COMM.session.id, COMM.session.passcode, rows);
       m.remove();
       COMM.period = null; COMM.week = null;
       await refreshCommission();
-      alert(n + " flag(s) imported.");
+      alert(n + " row(s) imported.");
     } catch (x) { e.target.disabled = false; err.textContent = x.message; }
   });
 }

@@ -100,6 +100,18 @@ const API = (() => {
     commissionWeeklyPing(personId, passcode, send) {
       return rpc("commission_post_weekly_ping", { p_person_id: personId, p_passcode: passcode, p_send: !!send });
     },
+    // Runs the overnight read now (reviewers only). Can take a minute or
+    // two; returns its summary (deferred = orders left for another round).
+    async syncShopify(personId, passcode, since) {
+      const res = await fetch(BASE + "/functions/v1/overnight-read?since=" + encodeURIComponent(since), {
+        method: "POST",
+        headers: { apikey: KEY, ...AUTH, "Content-Type": "application/json" },
+        body: JSON.stringify({ person_id: personId, passcode }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok && !body.busy) throw new Error(body.error || res.statusText);
+      return body;
+    },
     // Fresh, short-lived Aircall recording link for one call on one flag.
     async callRecording(personId, passcode, flagId, aircallId) {
       const res = await fetch(BASE + "/functions/v1/call-recording", {
