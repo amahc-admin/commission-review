@@ -197,7 +197,7 @@ async function renderCommission() {
       pageBody.innerHTML = `<div class="empty-state"><p><strong>Couldn't load the board.</strong></p>
         <p class="muted small">${escapeHtml(err.message)}</p>
         <p class="muted small">If this is a fresh setup, run supabase/migrations/0001_commission_review.sql (see SETUP.md).</p>
-        <button class="btn btn-secondary" id="c-retry">Try again</button></div>`;
+        <button class="btn btn-secondary" id="c-retry">Try Again</button></div>`;
       document.getElementById("c-retry").addEventListener("click", renderCommission);
       return;
     }
@@ -254,7 +254,7 @@ async function renderCommissionLogin(message) {
         <div class="vm-item selected"><span class="vm-dot">${escapeHtml(initialsFrom(p.name))}</span><span>${escapeHtml(p.name)}</span><span class="muted small" style="margin-left:auto">${tag}</span></div>
         <input type="password" class="vm-passcode-input" id="c-pass" placeholder="Your passcode" autocomplete="off">
         <div class="row" style="gap:8px;margin-top:8px">
-          <button class="btn btn-primary" id="c-login" style="flex:1">Open my board</button>
+          <button class="btn btn-primary" id="c-login" style="flex:1">Open My Board</button>
           <button class="btn btn-secondary" id="c-cancel">Cancel</button>
         </div>
         <p class="muted small" id="c-login-err" style="min-height:16px;margin-top:6px"></p>
@@ -290,7 +290,7 @@ async function renderCommissionLogin(message) {
         COMM.loginPick = null; COMM.period = null; COMM.selectedId = null;
         renderCommission();
       } catch (e) {
-        btn.disabled = false; btn.textContent = "Open my board";
+        btn.disabled = false; btn.textContent = "Open My Board";
         err.textContent = "Wrong passcode.";
       }
     };
@@ -343,8 +343,8 @@ function renderCommissionBoard() {
 
   const reviewerTools = isReviewer() ? `
       <button class="btn btn-secondary c-btn-sm" id="c-import">Sync from Shopify</button>
-      <button class="btn btn-secondary c-btn-sm" id="c-ping">Monday ping</button>
-      <button class="btn btn-secondary c-btn-sm" id="c-totals">Payout totals</button>
+      <button class="btn btn-secondary c-btn-sm" id="c-ping">Monday Ping</button>
+      <button class="btn btn-secondary c-btn-sm" id="c-totals">Payout Totals</button>
       <button class="btn btn-secondary c-btn-sm" id="c-export">Export CSV</button>
       <span class="c-runline">${runLine}</span>` : "";
 
@@ -441,7 +441,7 @@ function reviewerQueueHtml() {
       <select id="c-filter" class="c-select">${opts}</select></div>
     <div class="c-rows">${flags.map((f) => queueRowHtml(f)).join("") || `<p class="muted small c-empty">Nothing here.</p>`}</div>
     <div class="c-queue-foot">
-      ${COMM.week !== "all" ? `<button class="btn btn-primary c-btn-sm" id="c-signoff" ${canSign ? "" : "disabled"} title="${canSign ? "" : "Every flag with money at stake needs a decision first"}">Sign off week ${COMM.week}</button>` : ""}
+      ${COMM.week !== "all" ? `<button class="btn btn-primary c-btn-sm" id="c-signoff" ${canSign ? "" : "disabled"} title="${canSign ? "" : "Every flag with money at stake needs a decision first"}">Sign Off Week ${COMM.week}</button>` : ""}
       <span class="faint small">Anything undecided at month-end counts against the rep as-is.</span>
     </div>`;
 }
@@ -645,24 +645,24 @@ function reviewerActionsHtml(f) {
   const ai = f.ai || {};
   const rep = escapeHtml(personNameById(f.rep_id));
   if (f.decision) {
-    return `<div class="c-actions"><button class="btn btn-secondary" data-act="reopen">Reopen / change decision</button></div>`;
+    return `<div class="c-actions"><button class="btn btn-secondary" data-act="reopen">Reopen / Change Decision</button></div>`;
   }
   if (!hasStake(f)) {
     return `<div class="c-actions"><p class="small muted">Nothing to decide — this one counts for the rep.</p></div>`;
   }
   let main;
   if (f.kind === "claim") {
-    main = `<button class="btn c-btn-go" data-act="push">Push to commission</button>
-            <button class="btn c-btn-stop" data-act="reject">Reject claim</button>`;
+    main = `<button class="btn c-btn-go" data-act="push">Push to Commission</button>
+            <button class="btn c-btn-stop" data-act="reject">Reject Claim</button>`;
   } else {
     let acceptLabel = null;
-    const accept = isRulesRead(f) ? "Accept suggestion" : "Accept AI";
-    if (ai.verdict === "partial") acceptLabel = `${accept} — waive ${cMoney(ai.waive_amount)}, rest counts`;
-    else if (ai.verdict === "waive") acceptLabel = `${accept} — waive it all`;
-    else if (ai.verdict === "counts") acceptLabel = `${accept} — it counts`;
+    const accept = isRulesRead(f) ? "Accept Suggestion" : "Accept AI";
+    if (ai.verdict === "partial") acceptLabel = `${accept} — Waive ${cMoney(ai.waive_amount)}, Rest Counts`;
+    else if (ai.verdict === "waive") acceptLabel = `${accept} — Waive It All`;
+    else if (ai.verdict === "counts") acceptLabel = `${accept} — It Counts`;
     main = `${acceptLabel ? `<button class="btn c-btn-go" data-act="accept">${acceptLabel}</button>` : ""}
-      <button class="btn btn-secondary" data-act="waive">Waive it all</button>
-      <button class="btn c-btn-stop" data-act="counts">Count it all</button>
+      <button class="btn btn-secondary" data-act="waive">Waive It All</button>
+      <button class="btn c-btn-stop" data-act="counts">Count It All</button>
       <span class="c-partial">Waive $<input type="number" min="0" step="1" max="${Number(f.amount)}" id="c-partial-amt" placeholder="0"><button class="btn btn-secondary c-btn-sm" data-act="partial">Go</button></span>`;
   }
   const canEscalate = !(COMM.board.me || {}).is_approver;
@@ -671,8 +671,8 @@ function reviewerActionsHtml(f) {
     <input type="text" id="c-note" class="c-input" placeholder="Note on the decision (optional — logged with your name)">
     <div class="c-actions-side">
       <span class="small muted">Not sure?</span>
-      <button class="c-link" data-act="ask-open">Ask ${rep} for their case</button>
-      ${canEscalate ? `<span class="faint">·</span><button class="c-link" data-act="esc-open">${f.escalated_at ? "Update escalation" : "Escalate to " + escapeHtml(approverName())}</button>` : ""}
+      <button class="c-link" data-act="ask-open">Ask ${rep} for Their Case</button>
+      ${canEscalate ? `<span class="faint">·</span><button class="c-link" data-act="esc-open">${f.escalated_at ? "Update Escalation" : "Escalate to " + escapeHtml(approverName())}</button>` : ""}
 
     </div>
     <div id="c-inline" class="c-inline"></div>
@@ -703,9 +703,9 @@ function repAnswerHtml(f) {
       <span>Drop screenshots here, paste one (Ctrl/Cmd+V), or <button class="c-link" id="c-pick">choose files</button></span>
     </div>
     <div class="row" style="gap:8px;margin-top:8px"><input type="url" id="c-link-in" class="c-input" placeholder="...or paste a link (Dropbox, Drive, Slack message)" style="margin:0">
-      <button class="btn btn-secondary c-btn-sm" id="c-link-add">Add link</button></div>
+      <button class="btn btn-secondary c-btn-sm" id="c-link-add">Add Link</button></div>
     <div id="c-proof-list"></div>
-    <div class="row" style="gap:10px;margin-top:14px"><button class="btn btn-primary" id="c-submit">${f.rep_case ? "Update my case" : "Send my case"}</button>
+    <div class="row" style="gap:10px;margin-top:14px"><button class="btn btn-primary" id="c-submit">${f.rep_case ? "Update My Case" : "Send My Case"}</button>
       <span class="small c-err" id="c-ans-err"></span></div>
   </div>`;
 }
@@ -770,7 +770,7 @@ function wireDetail(f) {
         const ask = act === "ask-open";
         document.getElementById("c-inline").innerHTML = `
           <textarea id="c-inline-text" class="c-input" rows="2" placeholder="${ask ? "What do you need from " + escapeAttr(personNameById(f.rep_id)) + "? It lands on their board and pings them." : "What's unclear? " + escapeAttr(approverName()) + " gets pinged with this."}">${!ask && f.escalated_note ? escapeHtml(f.escalated_note) : ""}</textarea>
-          <button class="btn btn-secondary c-btn-sm" id="c-inline-send">${ask ? "Send question" : "Escalate"}</button>`;
+          <button class="btn btn-secondary c-btn-sm" id="c-inline-send">${ask ? "Send Question" : "Escalate"}</button>`;
         document.getElementById("c-inline-text").focus();
         document.getElementById("c-inline-send").addEventListener("click", async (e) => {
           const text = document.getElementById("c-inline-text").value.trim();
@@ -896,13 +896,13 @@ function showCallModal(f, callIdx, atT) {
     <div class="c-modal-call"><strong class="small">${escapeHtml(c.source || "Call")} · ${cDate(c.date)} · ${escapeHtml(c.rep || "")} · ${c.minutes ? c.minutes + " min · " : ""}${escapeHtml(c.direction || "")}</strong>
       ${c.audio_url ? `<audio controls preload="metadata" src="${escapeAttr(c.audio_url)}" id="c-audio" style="width:100%;margin-top:8px"></audio>`
         : c.aircall_id && c.has_recording ? `<audio controls preload="none" id="c-audio" style="width:100%;margin-top:8px;display:none"></audio>
-            <button class="btn btn-secondary c-btn-sm" id="c-play" style="margin-top:8px">&#9654; Play recording</button> <span class="small c-err" id="c-play-err"></span>`
+            <button class="btn btn-secondary c-btn-sm" id="c-play" style="margin-top:8px">&#9654; Play Recording</button> <span class="small c-err" id="c-play-err"></span>`
         : `<p class="faint small">${c.answered === false ? "Missed call — no recording." : "No recording for this call."}</p>`}
       ${c.url ? `<a class="small" href="${escapeAttr(c.url)}" target="_blank" rel="noopener">open the recording &#8599;</a>` : ""}</div>
     <div class="c-transcript" id="c-transcript">${lines || `<p class="muted small">${c.source === "Aircall" ? "No transcript from Aircall for this call — play the recording instead." : "No transcript."}</p>`}
       <p class="faint small" style="text-align:center">${(c.lines || []).length} lines, nothing hidden</p></div>
     <div class="c-modal-foot">
-      ${showButtons ? `<button class="btn c-btn-go-outline" data-claim="push">Push to commission</button><button class="btn c-btn-stop" data-claim="reject">Reject claim</button>` : ""}
+      ${showButtons ? `<button class="btn c-btn-go-outline" data-claim="push">Push to Commission</button><button class="btn c-btn-stop" data-claim="reject">Reject Claim</button>` : ""}
       <span class="faint small" style="margin-left:auto">Whatever's decided, the transcript stays attached to the order.</span>
     </div>`, true);
 
@@ -918,7 +918,7 @@ function showCallModal(f, callIdx, atT) {
     loading = API.callRecording(COMM.session.id, COMM.session.passcode, f.id, c.aircall_id).then((r) => {
       audio.src = r.url; audio.style.display = "block"; play.remove();
     }).catch((e) => {
-      play.disabled = false; play.innerHTML = "&#9654; Play recording"; loading = null;
+      play.disabled = false; play.innerHTML = "&#9654; Play Recording"; loading = null;
       m.querySelector("#c-play-err").textContent = e.message;
       throw e;
     });
@@ -993,7 +993,7 @@ function showImportModal() {
         <code>customer</code>, <code>gross</code>, <code>pct</code>.</p>
       <div class="row" style="gap:10px"><input type="file" id="c-import-file" accept=".csv,.json,text/csv,application/json"><span class="small muted" id="c-import-info"></span></div>
       <textarea id="c-import-text" class="c-input" rows="5" placeholder="...or paste the CSV here" style="margin-top:8px"></textarea>
-      <div class="row" style="gap:10px;margin-top:6px"><button class="btn btn-secondary c-btn-sm" id="c-import-go">Import file</button><span class="small c-err" id="c-import-err"></span></div>
+      <div class="row" style="gap:10px;margin-top:6px"><button class="btn btn-secondary c-btn-sm" id="c-import-go">Import File</button><span class="small c-err" id="c-import-err"></span></div>
     </details>`, true);
 
   // ---- sync ----
@@ -1063,10 +1063,10 @@ function showImportModal() {
 
 async function showPingModal() {
   const m = commissionModal("c-ping-modal", `
-    <div class="c-modal-head"><strong>Monday ping</strong><button class="c-x" data-close aria-label="Close">&times;</button></div>
+    <div class="c-modal-head"><strong>Monday Ping</strong><button class="c-x" data-close aria-label="Close">&times;</button></div>
     <p class="small muted" style="text-align:left">Posts by itself every Monday 8am once the schedule is set up (SETUP.md). This is exactly what it would say right now:</p>
     <pre class="c-ping-pre" id="c-ping-text">Loading...</pre>
-    <div class="c-modal-foot"><button class="btn btn-primary" id="c-ping-send">Post it to Slack now</button><button class="btn btn-secondary" data-close>Close</button>
+    <div class="c-modal-foot"><button class="btn btn-primary" id="c-ping-send">Post It to Slack Now</button><button class="btn btn-secondary" data-close>Close</button>
       <span class="small c-err" id="c-ping-err"></span></div>`, true);
   const s = COMM.session;
   try { m.querySelector("#c-ping-text").textContent = await API.commissionWeeklyPing(s.id, s.passcode, false); }
