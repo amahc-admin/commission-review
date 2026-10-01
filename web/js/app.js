@@ -1015,7 +1015,9 @@ function showImportModal() {
         total += r.flags_written || 0;
         calls += r.calls_attached || 0;
         if (!r.deferred) {
-          status.innerHTML = `<span class="c-ok">Done.</span> ${r.orders_scanned} orders checked, ${total} flag(s) updated${calls ? `, ${calls} call(s) attached` : ""}.`;
+          status.innerHTML = total
+            ? `<span class="c-ok">Done.</span> ${r.orders_scanned} orders checked, ${total} flag(s) updated${calls ? `, ${calls} call(s) attached` : ""}.`
+            : `<span class="c-ok">Done — everything was already up to date.</span> ${r.orders_scanned} orders checked, nothing new since the last sync.`;
           break;
         }
       }
