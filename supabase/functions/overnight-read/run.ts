@@ -12,7 +12,7 @@ const MODEL = "claude-opus-5-5";
 const AI_CONCURRENCY = 4;
 // Edge Functions have a wall-clock limit; stop starting new AI reads after
 // this and let the next run pick up the rest.
-const TIME_BUDGET_MS = 110_000;
+const TIME_BUDGET_MS = 70_000;
 
 const env = (k: string) => {
   const v = Deno.env.get(k);

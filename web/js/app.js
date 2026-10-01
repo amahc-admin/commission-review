@@ -1003,11 +1003,11 @@ function showImportModal() {
     go.disabled = true;
     const s = COMM.session;
     let round = 0, total = 0, calls = 0;
-    // (round stays at 8 only if every round still had orders left)
+    // (round stays at 15 only if every round still had orders left)
     try {
       // Aircall's rate limit means a full month can take a few rounds;
       // keep going until nothing is left (with a safety cap).
-      for (; round < 8; round++) {
+      for (; round < 15; round++) {
         status.textContent = round === 0 ? "Syncing... this takes a minute or two." : `Still going — round ${round + 1} (Aircall allows one request a second)...`;
         const r = await API.syncShopify(s.id, s.passcode, COMM.period + "-01");
         if (r.busy) { status.textContent = "A sync is already running (maybe tonight's). Try again in a couple of minutes."; break; }
@@ -1019,10 +1019,13 @@ function showImportModal() {
           break;
         }
       }
-      if (round === 8) status.textContent = "Lots of orders this month — click Sync again to finish the rest.";
+      if (round === 15) status.textContent = "Lots of orders this month — click Sync again to finish the rest.";
       await refreshCommission();
     } catch (e) {
-      status.innerHTML = `<span class="c-err">${escapeHtml(e.message)}</span>`;
+      const msg = /failed to fetch|networkerror|load failed/i.test(e.message)
+        ? "Lost the connection while syncing. The sync may still have finished — close this, reload the board, and click Sync again to carry on."
+        : e.message;
+      status.innerHTML = `<span class="c-err">${escapeHtml(msg)}</span>`;
     } finally {
       go.disabled = false;
     }
