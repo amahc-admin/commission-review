@@ -107,7 +107,7 @@ function wireRangeCalendar(onPick) {
   const btn = document.getElementById("c-range-btn");
   const cal = document.getElementById("c-cal");
   if (!btn || !cal) return;
-  const st = { start: null, hover: null, view: null };
+  const st = { start: null, hover: null, view: null, warn: null };
   const today = isoDate(new Date());
   const dayIso = (y, m, d) => isoDate(new Date(y, m, d, 12));
 
@@ -140,7 +140,7 @@ function wireRangeCalendar(onPick) {
     cal.innerHTML = `
       <div class="c-cal-head">
         <button type="button" class="c-cal-nav" data-nav="-1" aria-label="Previous month">&#8249;</button>
-        <span class="small muted">${st.start ? "Now click the end date" : "Click a start date, then an end date"}</span>
+        <span class="small ${st.warn ? "c-warn" : "muted"}">${st.warn ? escapeHtml(st.warn) : st.start ? "Now click the end date" : "Click a start date, then an end date"}</span>
         <button type="button" class="c-cal-nav" data-nav="1" aria-label="Next month">&#8250;</button>
       </div>
       <div class="c-cal-months">${monthHtml(y, m)}${two ? monthHtml(next.getFullYear(), next.getMonth()) : ""}</div>`;
@@ -166,6 +166,12 @@ function wireRangeCalendar(onPick) {
     if (!st.start) { st.start = day.dataset.day; st.hover = null; return draw(); }
     let from = st.start, to = day.dataset.day;
     if (to < from) [from, to] = [to, from];
+    if ((new Date(to) - new Date(from)) / 86400000 > 366) {
+      st.warn = "That's more than a year — pick an end date within 12 months.";
+      st.start = null; st.hover = null;
+      return draw();
+    }
+    st.warn = null;
     close();
     onPick(from, to);
   });
@@ -315,7 +321,7 @@ async function renderCommission() {
       if (/passcode/i.test(err.message)) { setCommissionSession(null); return renderCommissionLogin("Your passcode has changed -- log in again."); }
       pageBody.innerHTML = `<div class="empty-state"><p><strong>Couldn't load the board.</strong></p>
         <p class="muted small">${escapeHtml(err.message)}</p>
-        <p class="muted small">If this is a fresh setup, run supabase/migrations/0001_commission_review.sql (see SETUP.md).</p>
+        ${/function|schema cache|does not exist/i.test(err.message) ? `<p class="muted small">The database is missing a setup step — see SETUP.md.</p>` : ""}
         <button class="btn btn-secondary" id="c-retry">Try Again</button></div>`;
       document.getElementById("c-retry").addEventListener("click", renderCommission);
       return;
@@ -327,7 +333,18 @@ async function renderCommission() {
 async function loadCommissionBoard() {
   const s = COMM.session;
   if (!COMM.range) COMM.range = loadRange();
-  const board = await API.commissionBoardRange(s.id, s.passcode, COMM.range.from, COMM.range.to);
+  let board;
+  try {
+    board = await API.commissionBoardRange(s.id, s.passcode, COMM.range.from, COMM.range.to);
+    COMM.rangeNotice = null;
+  } catch (e) {
+    // A saved range the database refuses (too long, or back to front)
+    // shouldn't lock anyone out: fall back to This Month and say why.
+    if (!/range|start and end date/i.test(e.message) || COMM.range.preset === "thisMonth") throw e;
+    COMM.rangeNotice = "That range couldn't be shown (" + e.message + "), so here's this month instead.";
+    setRange({ ...presetRange("thisMonth"), preset: "thisMonth" });
+    board = await API.commissionBoardRange(s.id, s.passcode, COMM.range.from, COMM.range.to);
+  }
   COMM.board = board;
   // Reviewers see when the overnight read last ran and anything it
   // couldn't put on a rep's board. Older databases without 0002 just skip it.
@@ -443,6 +460,7 @@ function renderCommissionBoard() {
         <button class="c-range-btn ${r.preset ? "" : "active"}" id="c-range-btn" aria-haspopup="dialog" aria-expanded="false">&#128197; ${escapeHtml(rangeLabel(r))} <span class="c-caret">&#9662;</span></button>
         <div class="c-cal" id="c-cal" role="dialog" aria-label="Pick a date range" hidden></div>
       </div>
+      ${COMM.rangeNotice ? `<span class="small c-warn">${escapeHtml(COMM.rangeNotice)}</span>` : ""}
       <span class="small muted">Showing <strong>${escapeHtml(rangeLabel(r))}</strong> · ${b.flags.length} order(s)${signed ? ` · <span class="c-ok">&#10003; signed off by ${escapeHtml(signed.signed_by)}</span>` : ""}</span>
     </div>`;
 
